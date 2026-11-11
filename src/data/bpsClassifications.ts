@@ -1,0 +1,64 @@
+export interface KlasifikasiItem {
+  kode: string;
+  nama: string;
+  kategori: string;
+}
+
+export const DAFTAR_KLASIFIKASI_BPS: KlasifikasiItem[] = [
+  { kode: 'PR.100', nama: 'Perencanaan Program dan Anggaran', kategori: 'Perencanaan' },
+  { kode: 'PR.200', nama: 'Evaluasi & Laporan Kinerja (LAKIP/SAKIP)', kategori: 'Perencanaan' },
+  { kode: 'KU.010', nama: 'Pengelolaan Keuangan & Perbendaharaan', kategori: 'Keuangan' },
+  { kode: 'KU.020', nama: 'Akuntansi & Verifikasi Dokumen Keuangan', kategori: 'Keuangan' },
+  { kode: 'KP.010', nama: 'Formasi, Rekrutmen & Administrasi SDM', kategori: 'Kepegawaian' },
+  { kode: 'KP.020', nama: 'Mutasi, Promosi, Cuti & Disiplin Pegawai', kategori: 'Kepegawaian' },
+  { kode: 'KP.030', nama: 'Pengembangan Kompetensi & Pelatihan', kategori: 'Kepegawaian' },
+  { kode: 'HM.100', nama: 'Hubungan Masyarakat, Publikasi & Pers', kategori: 'Humas' },
+  { kode: 'HM.200', nama: 'Kerjasama Antar Lembaga / MoU', kategori: 'Humas' },
+  { kode: 'TU.010', nama: 'Tata Persuratan, Ekspedisi & Kearsipan', kategori: 'Tata Usaha' },
+  { kode: 'TU.020', nama: 'Pengelolaan BMN, Rumah Tangga & Sarpras', kategori: 'Tata Usaha' },
+  { kode: 'VS.100', nama: 'Statistik Sosial (Susenas, Sakernas, Podes)', kategori: 'Statistik Sosial' },
+  { kode: 'VS.200', nama: 'Statistik Produksi (Pertanian, Industri, PEK)', kategori: 'Statistik Produksi' },
+  { kode: 'VS.300', nama: 'Statistik Distribusi & Jasa (Inflasi, Ekspor)', kategori: 'Statistik Distribusi' },
+  { kode: 'VS.400', nama: 'Neraca Wilayah & Analisis Statistik (PDRB)', kategori: 'Neraca' },
+  { kode: 'TI.100', nama: 'Pengelolaan TI, Jaringan & Keamanan Siber', kategori: 'IPDS' },
+  { kode: 'TI.200', nama: 'Diseminasi, Website & Pelayanan Terpadu', kategori: 'IPDS' },
+  { kode: 'HK.010', nama: 'Penyusunan Peraturan, Keputusan & Advokasi', kategori: 'Hukum' },
+];
+
+export const TIM_KERJA_OPTIONS = [
+  'SDM dan Hukum',
+  'Sekretaris',
+  'Tim Umum',
+  'Keuangan',
+  'Produksi',
+  'Distribusi',
+  'Sosial',
+  'Neraca',
+  'IPDS',
+  'Lainnya',
+];
+
+export const BULAN_LIST = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+export const DEFAULT_CONFIG = {
+  spreadsheetId: '1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg',
+  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbwqkoaf5CgOLS8bnGJHwCacg7nR92XyA68pcqbvOPouMghd9HA7j62Hezojh-wPS0_h/exec',
+  sheetName: 'Keluar26',
+  nomorBaruMulaiDari: 367,
+  kodeUnit: '6100',
+  whatsappAdmin: '6281253817688',
+  enableMondayRule: true,
+};

@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Nomor Surat Keluar BPS Kalbar",
+  "description": "Sistem Permintaan Nomor Surat Keluar Otomatis Terintegrasi untuk BPS Provinsi Kalimantan Barat (Sheet Keluar26)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
