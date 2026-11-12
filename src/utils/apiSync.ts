@@ -9,7 +9,6 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
  */
 
 const SPREADSHEET_ID = "1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg";
-const GOOGLE_DRIVE_PARENT_FOLDER_ID = "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
 const SHEET_NAME = "Keluar26";
 const SHEET_KELUAR = "Keluar26";
 const SHEET_NASKAH = "NaskahDinas";
@@ -17,34 +16,6 @@ const SHEET_ARSIP = "ArsipDigital";
 const SHEET_USERS = "Pengguna";
 const NOMOR_BARU_MULAI_DARI = 367;
 const KODE_UNIT = "61000";
-
-/**
- * Mendapatkan atau membuat subfolder di Google Drive
- */
-function getOrCreateSubFolder(parentFolder, folderName) {
-  const folders = parentFolder.getFoldersByName(folderName);
-  if (folders.hasNext()) {
-    return folders.next();
-  }
-  return parentFolder.createFolder(folderName);
-}
-
-/**
- * Membuat hierarki folder Google Drive: Folder Induk > Tahun > Tim Kerja > Bulan > (Draft/Arsip)
- */
-function getDriveHierarchyFolder(tahun, timKerja, bulan, tipeFolder, customParentId) {
-  const rootId = customParentId || GOOGLE_DRIVE_PARENT_FOLDER_ID;
-  const rootFolder = DriveApp.getFolderById(rootId);
-  const tahunFolder = getOrCreateSubFolder(rootFolder, String(tahun));
-  const timFolder = getOrCreateSubFolder(tahunFolder, String(timKerja || "Tim Umum & Humas"));
-  const bulanFolder = getOrCreateSubFolder(timFolder, String(bulan));
-  const targetFolder = getOrCreateSubFolder(bulanFolder, tipeFolder === "Arsip" ? "Arsip" : "Draft");
-  return {
-    folder: targetFolder,
-    path: rootId + " / " + tahun + " / " + timKerja + " / " + bulan + " / " + (tipeFolder === "Arsip" ? "Arsip" : "Draft"),
-    url: targetFolder.getUrl()
-  };
-}
 
 /**
  * Mendapatkan referensi Spreadsheet aktif

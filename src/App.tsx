@@ -80,8 +80,6 @@ import {
   syncSaveUser,
   syncDeleteUser,
 } from './utils/apiSync';
-import { useAppRouter } from './utils/router';
-import { createDraftDriveMetadata, createArsipDriveMetadata } from './utils/googleDriveService';
 import { ExternalLink, Layers, FileText, Table2, BarChart3, ShieldAlert } from 'lucide-react';
 
 const STORAGE_KEY_AUTH_USER = 'bps_kalbar_active_user_v1';
@@ -181,11 +179,6 @@ export default function App() {
     setToastMessage(msg);
   };
 
-  // Synchronize browser URL route, HTML5 history, and direct link / refresh
-  useAppRouter(currentUser, activeTab, setActiveTab, (reason) => {
-    showToast(reason || '⚠ Anda tidak memiliki hak akses ke halaman tersebut.');
-  });
-
   useEffect(() => {
     if (!toastMessage) return;
     const timer = setTimeout(() => {
@@ -276,18 +269,7 @@ export default function App() {
     data: Omit<NaskahDinas, 'id' | 'nomorRegistrasi' | 'status' | 'riwayatVersi' | 'riwayatVerifikasi' | 'waktuUpdate'>
   ) => {
     const { updatedList, newNaskah } = addNaskahDinas(data, naskahList);
-    
-    // Attach Google Drive hierarchy metadata
-    const driveMeta = createDraftDriveMetadata(newNaskah, config);
-    const enrichedNaskah: NaskahDinas = {
-      ...newNaskah,
-      googleDrive: driveMeta,
-    };
-    const finalUpdatedList = updatedList.map((n) => (n.id === newNaskah.id ? enrichedNaskah : n));
-
-    setNaskahList(finalUpdatedList);
-    saveStoredNaskahList(finalUpdatedList);
-
+    setNaskahList(updatedList);
     showToast(`✔ Draf ${newNaskah.nomorRegistrasi} berhasil diajukan dan diteruskan ke ${newNaskah.verifikatorDitunjuk}!`);
     if (currentUser?.allowedTabs.includes('verifikasi')) {
       setActiveTab('verifikasi');
@@ -297,7 +279,7 @@ export default function App() {
 
     // Sync to Google Spreadsheet in background
     if (config.appsScriptUrl) {
-      sendAppsScriptAction('saveNaskah', enrichedNaskah, config).catch(() => {});
+      sendAppsScriptAction('saveNaskah', newNaskah, config).catch(() => {});
     }
   };
 
@@ -462,19 +444,9 @@ export default function App() {
   };
 
   const handleSubmitFinal = (naskahId: string, dokumenFinal: DokumenFinal) => {
-    const targetNaskah = naskahList.find((n) => n.id === naskahId);
-    const driveMeta = targetNaskah
-      ? createArsipDriveMetadata(targetNaskah, dokumenFinal, config)
-      : undefined;
-
-    const enrichedDokumenFinal: DokumenFinal = {
-      ...dokumenFinal,
-      googleDrive: driveMeta,
-    };
-
     const { updatedList } = arsipkanNaskahFinal(
       naskahId,
-      enrichedDokumenFinal,
+      dokumenFinal,
       naskahList,
       currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
     );
@@ -485,7 +457,7 @@ export default function App() {
     if (changedItem && config.appsScriptUrl) {
       sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
     }
-    showToast(`✔ Naskah dinas ${dokumenFinal.nomorSuratResmi} berhasil diarsipkan ke Sheet ArsipDigital & terorganisasi di Google Drive!`);
+    showToast(`✔ Naskah dinas ${dokumenFinal.nomorSuratResmi} berhasil diarsipkan ke Sheet ArsipDigital!`);
   };
 
   const handleUpdateNaskah = (updated: NaskahDinas) => {

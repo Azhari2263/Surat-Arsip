@@ -30,7 +30,6 @@ export interface AppConfig {
   kodeUnit: string;
   whatsappAdmin: string;
   enableMondayRule: boolean;
-  googleDriveParentFolderId?: string; // ID Folder Induk Google Drive (Default: 1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S)
 }
 
 export interface SubmitSuratPayload {
@@ -180,22 +179,6 @@ export interface VersiDokumen {
   catatanPerbaikan?: string;
 }
 
-export interface GoogleDriveMetadata {
-  parentFolderId: string;
-  tahun: string;
-  timKerja: string;
-  bulan: string;
-  tipeFolder: 'Draft' | 'Arsip';
-  hierarchyPath: string; // e.g. "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S / 2026 / Tim Sosial / 02 - Februari / Arsip"
-  folderId?: string;
-  fileId?: string;
-  fileName: string;
-  webViewLink?: string;
-  downloadUrl?: string;
-  waktuSinkronisasi: string;
-  status: 'TERORGANISIR' | 'TERHUBUNG' | 'LOKAL';
-}
-
 export interface DokumenFinal {
   nomorSuratResmi: string;
   tanggalPenetapan: string;
@@ -209,7 +192,6 @@ export interface DokumenFinal {
   kodeUnitArsip: string;
   tingkatKeamanan: 'Biasa' | 'Terbatas' | 'Rahasia' | 'Sangat Rahasia';
   lokasiPenyimpanan?: string;
-  googleDrive?: GoogleDriveMetadata;
 }
 
 export interface NaskahDinas {
@@ -243,7 +225,6 @@ export interface NaskahDinas {
   riwayatVerifikasi: CatatanVerifikasi[];
   riwayatAktivitas?: LogAktivitasNaskah[];
   dokumenFinal?: DokumenFinal;
-  googleDrive?: GoogleDriveMetadata;
   waktuUpdate: string;
   ringkasanIsi?: string;
 }

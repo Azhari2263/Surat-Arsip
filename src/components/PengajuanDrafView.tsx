@@ -353,7 +353,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
         return 'bg-emerald-100 text-emerald-900 border-emerald-200';
       case 'SELESAI_ARSIP':
       case 'FINAL_DIARSIPKAN':
-        return 'bg-teal-50 text-teal-800 border-teal-200';
+        return 'bg-slate-900 text-emerald-400 border-slate-700';
       default:
         return 'bg-slate-100 text-slate-800 border-slate-200';
     }
@@ -748,13 +748,13 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                         <div
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
                             isArchived
-                              ? 'bg-teal-50 border-teal-300 text-teal-800'
+                              ? 'bg-slate-900 border-slate-700 text-emerald-400'
                               : 'bg-slate-50 border-slate-200 text-slate-400'
                           }`}
                         >
                           <div
                             className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                              isArchived ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-600'
+                              isArchived ? 'bg-emerald-500 text-slate-900' : 'bg-slate-300 text-slate-600'
                             }`}
                           >
                             5
