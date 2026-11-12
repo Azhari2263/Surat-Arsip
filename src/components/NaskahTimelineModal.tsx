@@ -893,18 +893,18 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                 </div>
                 <div className={`p-4 rounded-2xl border shadow-xs space-y-2 ${
                   isFinalArchived
-                    ? 'bg-slate-900 text-white border-slate-700'
+                    ? 'bg-gradient-to-br from-teal-50/80 to-emerald-50/60 border-teal-200 text-slate-800'
                     : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between">
                     <h4 className="font-bold text-sm flex items-center gap-1.5">
-                      <Archive className={`w-4 h-4 ${isFinalArchived ? 'text-emerald-400' : 'text-slate-400'}`} />
-                      <span className={isFinalArchived ? 'text-white' : 'text-slate-900'}>
+                      <Archive className={`w-4 h-4 ${isFinalArchived ? 'text-teal-700' : 'text-slate-400'}`} />
+                      <span className={isFinalArchived ? 'text-teal-950 font-bold' : 'text-slate-900'}>
                         Tahap 4: Penyimpanan Arsip Digital (Dokumen Sah)
                       </span>
                     </h4>
                     {isFinalArchived && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-300">
                         Sah & Terkunci
                       </span>
                     )}
@@ -912,43 +912,61 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
 
                   {isFinalArchived && naskah.dokumenFinal ? (
                     <div className="space-y-3 pt-1 text-xs">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-3 rounded-xl border border-teal-200/80">
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Nomor Surat Sah
                           </span>
-                          <span className="font-bold font-mono text-emerald-400">
+                          <span className="font-bold font-mono text-emerald-800">
                             {naskah.dokumenFinal.nomorSuratResmi}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Tanggal Penetapan
                           </span>
-                          <span className="font-semibold text-slate-200 font-mono-tabular">
+                          <span className="font-semibold text-slate-800 font-mono-tabular">
                             {naskah.dokumenFinal.tanggalPenetapan}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Penandatangan
                           </span>
-                          <span className="font-semibold text-slate-200">
+                          <span className="font-semibold text-slate-800">
                             {naskah.dokumenFinal.pejabatPenandatangan}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Metode TTD
                           </span>
-                          <span className="font-bold text-amber-300">
+                          <span className="font-bold text-teal-800">
                             {naskah.dokumenFinal.tipeTandaTangan}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800 text-[11px]">
-                        <span className="text-slate-400">
+                      {/* Google Drive Organization Folder */}
+                      <div className="p-2.5 bg-white/90 rounded-xl border border-teal-200 flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-slate-500 font-medium">Google Drive:</span>
+                          <span className="font-mono text-teal-900 font-semibold truncate">
+                            {naskah.dokumenFinal.googleDrive?.hierarchyPath || `1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S / ${new Date().getFullYear()} / ${naskah.unitKerja} / Arsip`}
+                          </span>
+                        </div>
+                        <a
+                          href={naskah.dokumenFinal.googleDrive?.webViewLink || 'https://drive.google.com/drive/folders/1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2 py-1 bg-teal-100 hover:bg-teal-200 text-teal-900 rounded font-semibold text-[11px] shrink-0"
+                        >
+                          Buka Drive
+                        </a>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-teal-100 text-[11px]">
+                        <span className="text-slate-600">
                           Berkas: <strong>{naskah.dokumenFinal.namaFile}</strong> (
                           {Math.round((naskah.dokumenFinal.ukuranFile || 0) / 1024)} KB)
                         </span>
@@ -956,7 +974,7 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                           <a
                             href={naskah.dokumenFinal.dataUrl}
                             download={naskah.dokumenFinal.namaFile}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                            className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#1a6bb5] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Unduh Dokumen PDF Sah</span>

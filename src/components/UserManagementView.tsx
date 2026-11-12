@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { TabKey, UserProfile, UserRole } from '../types';
 import { mapRoleToAllowedTabs } from '../utils/userStorage';
+import { TIM_KERJA_OPTIONS } from '../data/bpsClassifications';
 
 interface UserManagementViewProps {
   userList: UserProfile[];
@@ -678,15 +679,20 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 {/* Unit Kerja */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Unit Kerja / Tim Kerja
+                    Unit Kerja / Tim Kerja <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={formData.unitKerja}
                     onChange={(e) => setFormData({ ...formData, unitKerja: e.target.value })}
-                    placeholder="Contoh: Statistik Distribusi"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:border-[#0f4c82]"
-                  />
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white outline-none focus:border-[#0f4c82] cursor-pointer"
+                  >
+                    <option value="Semua Unit Kerja">Semua Unit Kerja (Admin/Arsiparis)</option>
+                    {TIM_KERJA_OPTIONS.map((tim) => (
+                      <option key={tim} value={tim}>
+                        {tim}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

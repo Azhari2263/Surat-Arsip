@@ -305,19 +305,19 @@ export const NaskahDashboard: React.FC<NaskahDashboardProps> = ({
         {/* Final & Diarsipkan */}
         <div
           onClick={() => handleMetricClick('arsip')}
-          className="p-4 sm:p-5 xl:p-6 rounded-2xl bg-slate-900 text-white shadow-xs hover:shadow-md hover:bg-slate-800 transition-all flex flex-col justify-between min-h-[120px] xl:min-h-[135px] cursor-pointer col-span-2 sm:col-span-1 border border-slate-800 group"
+          className="p-4 sm:p-5 xl:p-6 rounded-2xl bg-gradient-to-br from-[#0c3e66] via-[#0f4c82] to-[#125d36] text-white shadow-xs hover:shadow-md hover:brightness-105 transition-all flex flex-col justify-between min-h-[120px] xl:min-h-[135px] cursor-pointer col-span-2 sm:col-span-1 border border-blue-900/30 group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] xl:text-xs font-bold text-slate-300 uppercase tracking-wider group-hover:text-white">
+            <span className="text-[11px] xl:text-xs font-bold text-blue-100 uppercase tracking-wider group-hover:text-white">
               Arsip Digital
             </span>
-            <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-xl bg-white/10 text-emerald-400 flex items-center justify-center border border-white/10">
+            <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-xl bg-white/15 text-white flex items-center justify-center border border-white/20">
               <Archive className="w-4 h-4 xl:w-4.5 xl:h-4.5" />
             </div>
           </div>
           <div className="mt-3">
             <div className="text-2xl sm:text-3xl font-black text-white font-mono-tabular leading-tight">{countFinal}</div>
-            <div className="text-[11px] text-emerald-400 font-medium mt-0.5">Sah bertanda tangan</div>
+            <div className="text-[11px] text-amber-200 font-medium mt-0.5">Sah bertanda tangan & Google Drive</div>
           </div>
         </div>
       </div>
@@ -369,7 +369,7 @@ export const NaskahDashboard: React.FC<NaskahDashboardProps> = ({
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             isArchived
-                              ? 'bg-slate-900 text-emerald-400'
+                              ? 'bg-teal-50 text-teal-800 border border-teal-200'
                               : isVerified
                               ? 'bg-emerald-100 text-emerald-800'
                               : isNeedRevision
@@ -504,18 +504,18 @@ export const NaskahDashboard: React.FC<NaskahDashboardProps> = ({
               </div>
 
               {/* Langkah 4 */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col justify-between">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-[#0c3e66] to-[#0f4c82] text-white flex flex-col justify-between border border-blue-900/30 shadow-xs">
                 <div>
-                  <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                  <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
                     Tahap 04
                   </div>
-                  <h4 className="text-xs font-bold text-white mt-1">Unggah Final & Arsip Digital</h4>
-                  <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
-                    Softcopy PDF naskah resmi yang sah diunggah ke Arsip Digital. Tersimpan permanen dan terdaftar pada lembar ArsipDigital spreadsheet.
+                  <h4 className="text-xs font-bold text-white mt-1">Unggah Final & Arsip Digital Google Drive</h4>
+                  <p className="text-[11px] text-blue-100/90 mt-1 leading-relaxed">
+                    Softcopy PDF naskah resmi yang sah diunggah ke repositori Arsip Digital terpadu. Tersimpan permanen dalam hierarki folder Google Drive dan buku register resmi BPS.
                   </p>
                 </div>
-                <div className="mt-3 pt-2 border-t border-slate-700 text-[10px] text-emerald-400 font-bold">
-                  Status: Final Diarsipkan
+                <div className="mt-3 pt-2 border-t border-white/20 text-[10px] text-emerald-300 font-bold">
+                  Status: Final Diarsipkan (Google Drive)
                 </div>
               </div>
             </div>

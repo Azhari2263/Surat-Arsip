@@ -39,6 +39,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [kodeUnit, setKodeUnit] = useState(config.kodeUnit);
   const [whatsappAdmin, setWhatsappAdmin] = useState(config.whatsappAdmin);
   const [appsScriptUrl, setAppsScriptUrl] = useState(config.appsScriptUrl || '');
+  const [googleDriveParentFolderId, setGoogleDriveParentFolderId] = useState(
+    config.googleDriveParentFolderId || '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S'
+  );
   const [enableMondayRule, setEnableMondayRule] = useState(config.enableMondayRule);
 
   const handleSave = (e: React.FormEvent) => {
@@ -50,9 +53,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       kodeUnit: kodeUnit.trim() || '6100',
       whatsappAdmin: whatsappAdmin.trim(),
       appsScriptUrl: appsScriptUrl.trim(),
+      googleDriveParentFolderId: googleDriveParentFolderId.trim() || '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S',
       enableMondayRule,
     });
-    onToast('✔ Pengaturan sistem dan spreadsheet berhasil disimpan!');
+    onToast('✔ Pengaturan sistem dan Google Drive berhasil disimpan!');
     onClose();
   };
 
@@ -188,6 +192,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Google Drive Parent Folder ID */}
+            <div className="sm:col-span-2">
+              <label className="block font-bold text-slate-700 mb-1">
+                ID Folder Induk Google Drive (Penyimpanan Arsip Digital)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={googleDriveParentFolderId}
+                  onChange={(e) => setGoogleDriveParentFolderId(e.target.value)}
+                  placeholder="1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S"
+                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs focus:border-[#1a6bb5] focus:ring-1 focus:ring-blue-100"
+                />
+                <a
+                  href={`https://drive.google.com/drive/folders/${googleDriveParentFolderId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200 inline-flex items-center gap-1 shrink-0"
+                >
+                  <span>Buka Drive</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Folder utama Google Drive yang menaungi hierarki otomatis: <code>Folder Induk &gt; Tahun &gt; Tim Kerja &gt; Bulan &gt; Draft / Arsip</code>. Default: <code>1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S</code>.
+              </p>
             </div>
 
             {/* Nama Sheet */}
