@@ -81,6 +81,8 @@ import {
   syncDeleteUser,
 } from './utils/apiSync';
 import { ExternalLink, Layers, FileText, Table2, BarChart3, ShieldAlert } from 'lucide-react';
+import { parseCurrentRoute, navigateTo, checkTabPermission } from './utils/router';
+import { uploadDraftToDriveSync, archiveFinalToDriveSync } from './utils/googleDriveSync';
 
 const STORAGE_KEY_AUTH_USER = 'bps_kalbar_active_user_v1';
 
@@ -115,11 +117,20 @@ export default function App() {
     }
   });
 
-  // Active Navigation Tab
-  const [activeTab, setActiveTab] = useState<MainNavTab>('dashboard');
+  // Active Navigation Tab with Route Sync
+  const [activeTab, setActiveTab] = useState<MainNavTab>(() => {
+    const route = parseCurrentRoute();
+    return route.tab || 'dashboard';
+  });
 
-  // Penomoran sub-tabs (Buku Register Keluar26, Nomor Kosong, Statistik)
-  const [penomoranSubTab, setPenomoranSubTab] = useState<'register' | 'kosong' | 'stats'>('register');
+  // Penomoran sub-tabs (Buku Register Keluar26, Nomor Kosong, Form Input, Statistik)
+  const [penomoranSubTab, setPenomoranSubTab] = useState<'register' | 'kosong' | 'stats' | 'form'>(() => {
+    const route = parseCurrentRoute();
+    if (route.tab === 'penomoran' && route.subTab && ['register', 'kosong', 'stats', 'form'].includes(route.subTab)) {
+      return route.subTab as 'register' | 'kosong' | 'stats' | 'form';
+    }
+    return 'register';
+  });
   const [lastSubmittedSurat, setLastSubmittedSurat] = useState<SubmitResult | null>(null);
   const [preselectedKosong, setPreselectedKosong] = useState<SuratKeluar | null>(null);
 
@@ -187,6 +198,64 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
+  // Unified route navigation with role authorization check
+  const handleNavigateTab = (tab: MainNavTab, subTab?: string) => {
+    if (!currentUser) {
+      window.location.hash = '#/login';
+      return;
+    }
+    if (!checkTabPermission(tab, currentUser)) {
+      showToast(`⚠ Menu ${tab.toUpperCase()} tidak dapat diakses oleh peran ${currentUser.jabatan}.`);
+      setActiveTab('dashboard');
+      navigateTo('dashboard');
+      return;
+    }
+    setActiveTab(tab);
+    if (tab === 'penomoran' && subTab && ['register', 'kosong', 'stats', 'form'].includes(subTab)) {
+      setPenomoranSubTab(subTab as 'register' | 'kosong' | 'stats' | 'form');
+    }
+    navigateTo(tab, subTab);
+  };
+
+  // URL Hash Synchronisation & Role Guard Listener
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const route = parseCurrentRoute();
+      if (!currentUser) {
+        if (!route.isLogin) {
+          window.location.hash = '#/login';
+        }
+        return;
+      }
+
+      if (route.isLogin) {
+        navigateTo('dashboard');
+        setActiveTab('dashboard');
+        return;
+      }
+
+      if (!checkTabPermission(route.tab, currentUser)) {
+        showToast(`⚠ Akses ke halaman "${route.tab}" dibatasi untuk peran ${currentUser.jabatan}. Dialihkan ke Dashboard.`);
+        navigateTo('dashboard');
+        setActiveTab('dashboard');
+        return;
+      }
+
+      setActiveTab(route.tab);
+      if (route.tab === 'penomoran' && route.subTab && ['register', 'kosong', 'stats', 'form'].includes(route.subTab)) {
+        setPenomoranSubTab(route.subTab as 'register' | 'kosong' | 'stats' | 'form');
+      }
+    };
+
+    handleLocationChange();
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, [currentUser]);
+
   // Handle Login & Logout
   const handleLoginSuccess = (user: UserProfile) => {
     setCurrentUser(user);
@@ -195,7 +264,14 @@ export default function App() {
     } catch {
       // ignore
     }
-    setActiveTab('dashboard');
+    const route = parseCurrentRoute();
+    if (!route.isLogin && checkTabPermission(route.tab, user)) {
+      setActiveTab(route.tab);
+      navigateTo(route.tab, route.subTab);
+    } else {
+      setActiveTab('dashboard');
+      navigateTo('dashboard');
+    }
     showToast(`✔ Berhasil masuk sebagai ${user.nama} (${user.jabatan})`);
   };
 
@@ -206,6 +282,7 @@ export default function App() {
       // ignore
     }
     setCurrentUser(null);
+    window.location.hash = '#/login';
     showToast('✔ Anda telah keluar dari akun.');
   };
 
@@ -219,6 +296,7 @@ export default function App() {
     // If the active tab is not allowed for the new role, redirect to dashboard
     if (!user.allowedTabs.includes(activeTab)) {
       setActiveTab('dashboard');
+      navigateTo('dashboard');
     }
     showToast(`✔ Beralih peran ke ${user.nama} (${user.jabatan})`);
   };
@@ -272,15 +350,36 @@ export default function App() {
     setNaskahList(updatedList);
     showToast(`✔ Draf ${newNaskah.nomorRegistrasi} berhasil diajukan dan diteruskan ke ${newNaskah.verifikatorDitunjuk}!`);
     if (currentUser?.allowedTabs.includes('verifikasi')) {
-      setActiveTab('verifikasi');
+      handleNavigateTab('verifikasi');
     } else {
-      setActiveTab('pengajuan');
+      handleNavigateTab('pengajuan');
     }
 
-    // Sync to Google Spreadsheet in background
-    if (config.appsScriptUrl) {
-      sendAppsScriptAction('saveNaskah', newNaskah, config).catch(() => {});
-    }
+    // Upload draft to Google Drive structured hierarchy (Tahun > Tim Kerja > Bulan > Draft)
+    uploadDraftToDriveSync(newNaskah, config, newNaskah.drafFile)
+      .then((driveRes) => {
+        if (driveRes.success) {
+          const withDrive: NaskahDinas = {
+            ...newNaskah,
+            driveDraftFileId: driveRes.fileId,
+            driveDraftUrl: driveRes.fileUrl,
+            driveDraftFolderPath: driveRes.folderPath,
+          };
+          setNaskahList((prev) => {
+            const next = prev.map((item) => (item.id === newNaskah.id ? withDrive : item));
+            saveStoredNaskahList(next);
+            return next;
+          });
+          if (config.appsScriptUrl) {
+            sendAppsScriptAction('saveNaskah', withDrive, config).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {
+        if (config.appsScriptUrl) {
+          sendAppsScriptAction('saveNaskah', newNaskah, config).catch(() => {});
+        }
+      });
   };
 
   const handleVerifikasiKeputusan = (
@@ -438,12 +537,38 @@ export default function App() {
     setNaskahList(updatedList);
 
     const changedItem = updatedList.find((n) => n.id === naskahId);
-    if (changedItem && config.appsScriptUrl) {
-      sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
+    if (changedItem) {
+      // Re-upload/update draft in Google Drive without duplicate files
+      uploadDraftToDriveSync(changedItem, config, file)
+        .then((driveRes) => {
+          if (driveRes.success) {
+            const withDrive: NaskahDinas = {
+              ...changedItem,
+              driveDraftFileId: driveRes.fileId,
+              driveDraftUrl: driveRes.fileUrl,
+              driveDraftFolderPath: driveRes.folderPath,
+            };
+            setNaskahList((prev) => {
+              const next = prev.map((item) => (item.id === naskahId ? withDrive : item));
+              saveStoredNaskahList(next);
+              return next;
+            });
+            if (config.appsScriptUrl) {
+              sendAppsScriptAction('saveNaskah', withDrive, config).catch(() => {});
+            }
+          }
+        })
+        .catch(() => {
+          if (config.appsScriptUrl) {
+            sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
+          }
+        });
     }
   };
 
   const handleSubmitFinal = (naskahId: string, dokumenFinal: DokumenFinal) => {
+    const targetNaskah = naskahList.find((n) => n.id === naskahId);
+
     const { updatedList } = arsipkanNaskahFinal(
       naskahId,
       dokumenFinal,
@@ -451,13 +576,42 @@ export default function App() {
       currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
     );
     setNaskahList(updatedList);
-    setActiveTab('arsip');
+    handleNavigateTab('arsip');
 
     const changedItem = updatedList.find((n) => n.id === naskahId);
     if (changedItem && config.appsScriptUrl) {
       sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
     }
-    showToast(`✔ Naskah dinas ${dokumenFinal.nomorSuratResmi} berhasil diarsipkan ke Sheet ArsipDigital!`);
+    showToast(`✔ Naskah dinas ${dokumenFinal.nomorSuratResmi} berhasil diarsipkan ke Arsip Digital BPS!`);
+
+    // Upload & organize final document into Google Drive (Tahun > Tim Kerja > Bulan > Arsip)
+    if (targetNaskah) {
+      archiveFinalToDriveSync(targetNaskah, dokumenFinal, config)
+        .then((driveRes) => {
+          if (driveRes.success) {
+            const driveUpdatedDoc: DokumenFinal = {
+              ...dokumenFinal,
+              driveFileId: driveRes.fileId,
+              driveUrl: driveRes.fileUrl,
+              driveFolderPath: driveRes.folderPath,
+            };
+            const { updatedList: finalizedList } = arsipkanNaskahFinal(
+              naskahId,
+              driveUpdatedDoc,
+              naskahList,
+              currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
+            );
+            setNaskahList(finalizedList);
+            saveStoredNaskahList(finalizedList);
+
+            const updatedNaskah = finalizedList.find((n) => n.id === naskahId);
+            if (updatedNaskah && config.appsScriptUrl) {
+              sendAppsScriptAction('saveNaskah', updatedNaskah, config).catch(() => {});
+            }
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleUpdateNaskah = (updated: NaskahDinas) => {
@@ -712,7 +866,7 @@ export default function App() {
       {/* Main Header with Role Indicator & Switcher */}
       <Header
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleNavigateTab}
         onOpenSettings={currentUser.role === 'ADMIN' ? () => setShowSettings(true) : () => {}}
         onOpenSetupDatabase={currentUser.role === 'ADMIN' ? () => setShowSetupDatabase(true) : undefined}
         currentUser={currentUser}
@@ -740,7 +894,7 @@ export default function App() {
             </p>
             <div className="pt-2">
               <button
-                onClick={() => setActiveTab('dashboard')}
+                onClick={() => handleNavigateTab('dashboard')}
                 className="px-4 py-2 rounded-xl bg-[#0f4c82] hover:bg-[#1a6bb5] text-white text-xs font-bold cursor-pointer"
               >
                 Kembali ke Dashboard
@@ -754,22 +908,16 @@ export default function App() {
           <NaskahDashboard
             naskahList={naskahList}
             currentUser={currentUser}
-            onNavigateTab={(tab) => {
-              if (currentUser.allowedTabs.includes(tab)) {
-                setActiveTab(tab);
-              } else {
-                showToast(`⚠ Menu ${tab} dibatasi untuk peran Anda saat ini.`);
-              }
-            }}
+            onNavigateTab={(tab) => handleNavigateTab(tab)}
             onSelectNaskahDetail={(item) => {
               if (currentUser.allowedTabs.includes('verifikasi')) {
-                setActiveTab('verifikasi');
+                handleNavigateTab('verifikasi');
               } else if (item.status === 'PERLU_PERBAIKAN' && (currentUser.role === 'KONSEPTOR' || currentUser.role === 'ADMIN')) {
                 setSelectedForRevisi(item);
               } else if (currentUser.allowedTabs.includes('pengajuan')) {
-                setActiveTab('pengajuan');
+                handleNavigateTab('pengajuan');
               } else {
-                setActiveTab('dashboard');
+                handleNavigateTab('dashboard');
               }
             }}
             onOpenSettings={currentUser.role === 'ADMIN' ? () => setShowSettings(true) : undefined}
@@ -786,7 +934,7 @@ export default function App() {
             preselectedKosong={preselectedKosong}
             onClearPreselectedKosong={() => setPreselectedKosong(null)}
             onSubmitDraf={handlePengajuanDraf}
-            onNavigateToPedoman={() => setActiveTab('pedoman')}
+            onNavigateToPedoman={() => handleNavigateTab('pedoman')}
             onOpenRevisiModal={(naskah) => setSelectedForRevisi(naskah)}
             onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
             onTerbitkanNomorSurat={handleTerbitkanNomorSurat}
@@ -808,7 +956,7 @@ export default function App() {
             onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
             onUpdateNaskah={handleUpdateNaskah}
             onDeleteNaskah={handleDeleteNaskah}
-            onNavigateToPengajuan={currentUser.allowedTabs.includes('pengajuan') ? () => setActiveTab('pengajuan') : undefined}
+            onNavigateToPengajuan={currentUser.allowedTabs.includes('pengajuan') ? () => handleNavigateTab('pengajuan') : undefined}
             onOpenSetupDatabase={currentUser.role === 'ADMIN' ? () => setShowSetupDatabase(true) : undefined}
             onToast={showToast}
           />
@@ -819,6 +967,7 @@ export default function App() {
           <ArsipDigitalView
             naskahList={naskahList}
             currentUser={currentUser}
+            config={config}
             onUpdateArsip={handleUpdateArsip}
             onDeleteArsip={handleDeleteArsip}
             onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
@@ -840,7 +989,7 @@ export default function App() {
             <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
                 <button
-                  onClick={() => setPenomoranSubTab('register')}
+                  onClick={() => handleNavigateTab('penomoran', 'register')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     penomoranSubTab === 'register'
                       ? 'bg-[#0f4c82] text-white shadow-xs'
@@ -855,7 +1004,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setPenomoranSubTab('kosong')}
+                  onClick={() => handleNavigateTab('penomoran', 'kosong')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     penomoranSubTab === 'kosong'
                       ? 'bg-[#0f4c82] text-white shadow-xs'
@@ -872,7 +1021,19 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setPenomoranSubTab('stats')}
+                  onClick={() => handleNavigateTab('penomoran', 'form')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    penomoranSubTab === 'form'
+                      ? 'bg-[#0f4c82] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Formulir Langsung</span>
+                </button>
+
+                <button
+                  onClick={() => handleNavigateTab('penomoran', 'stats')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     penomoranSubTab === 'stats'
                       ? 'bg-[#0f4c82] text-white shadow-xs'
@@ -893,7 +1054,7 @@ export default function App() {
             <StatsBar
               stats={stats}
               nextNomor={nextNomorBaru}
-              onFilterKosong={() => setPenomoranSubTab('kosong')}
+              onFilterKosong={() => handleNavigateTab('penomoran', 'kosong')}
             />
 
             {/* Penomoran Sub-Views */}
@@ -914,9 +1075,46 @@ export default function App() {
                 onNavigateToForm={() => {
                   setLastSubmittedSurat(null);
                   setPreselectedKosong(null);
-                  setActiveTab('pengajuan');
+                  handleNavigateTab('penomoran', 'form');
                 }}
               />
+            )}
+
+            {penomoranSubTab === 'form' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="lg:col-span-8">
+                  <LetterForm
+                    onSubmit={handleSubmitSurat}
+                    emptyList={emptyList}
+                    preselectedKosong={preselectedKosong}
+                    onClearPreselectedKosong={() => setPreselectedKosong(null)}
+                    nextNomorBaru={nextNomorBaru}
+                    currentUser={currentUser}
+                  />
+                </div>
+                <div className="lg:col-span-4">
+                  {lastSubmittedSurat?.data ? (
+                    <ResultCard
+                      surat={lastSubmittedSurat.data}
+                      wasMondayPlaceholderCreated={lastSubmittedSurat.wasMondayPlaceholderCreated}
+                      mondayPlaceholderNomor={lastSubmittedSurat.mondayPlaceholderNomor}
+                      onReset={handleResetPenomoran}
+                      onOpenPrint={() => setShowPrintModal(true)}
+                      onToast={showToast}
+                    />
+                  ) : (
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#0f4c82] flex items-center justify-center mx-auto">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-sm">Formulir Nomor Surat Langsung</h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Gunakan formulir ini untuk penomoran langsung surat keluar (Sheet Keluar26). Untuk alur telaah resmi, gunakan menu <strong>Pengajuan Draf</strong>.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {penomoranSubTab === 'stats' && (

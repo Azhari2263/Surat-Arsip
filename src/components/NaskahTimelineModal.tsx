@@ -893,70 +893,70 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                 </div>
                 <div className={`p-4 rounded-2xl border shadow-xs space-y-2 ${
                   isFinalArchived
-                    ? 'bg-slate-900 text-white border-slate-700'
+                    ? 'bg-teal-50/80 text-slate-800 border-teal-200'
                     : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between">
                     <h4 className="font-bold text-sm flex items-center gap-1.5">
-                      <Archive className={`w-4 h-4 ${isFinalArchived ? 'text-emerald-400' : 'text-slate-400'}`} />
-                      <span className={isFinalArchived ? 'text-white' : 'text-slate-900'}>
-                        Tahap 4: Penyimpanan Arsip Digital (Dokumen Sah)
+                      <Archive className={`w-4 h-4 ${isFinalArchived ? 'text-teal-700' : 'text-slate-400'}`} />
+                      <span className={isFinalArchived ? 'text-teal-950 font-bold' : 'text-slate-900'}>
+                        Tahap 4: Penyimpanan Arsip Digital (Google Drive)
                       </span>
                     </h4>
                     {isFinalArchived && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        Sah & Terkunci
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                        Sah & Diarsipkan
                       </span>
                     )}
                   </div>
 
                   {isFinalArchived && naskah.dokumenFinal ? (
                     <div className="space-y-3 pt-1 text-xs">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-3 rounded-xl border border-teal-200 shadow-2xs">
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Nomor Surat Sah
                           </span>
-                          <span className="font-bold font-mono text-emerald-400">
+                          <span className="font-bold font-mono text-[#0f4c82]">
                             {naskah.dokumenFinal.nomorSuratResmi}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Tanggal Penetapan
                           </span>
-                          <span className="font-semibold text-slate-200 font-mono-tabular">
+                          <span className="font-semibold text-slate-800 font-mono-tabular">
                             {naskah.dokumenFinal.tanggalPenetapan}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Penandatangan
                           </span>
-                          <span className="font-semibold text-slate-200">
+                          <span className="font-semibold text-slate-800">
                             {naskah.dokumenFinal.pejabatPenandatangan}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px] uppercase">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">
                             Metode TTD
                           </span>
-                          <span className="font-bold text-amber-300">
+                          <span className="font-bold text-teal-700">
                             {naskah.dokumenFinal.tipeTandaTangan}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800 text-[11px]">
-                        <span className="text-slate-400">
-                          Berkas: <strong>{naskah.dokumenFinal.namaFile}</strong> (
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-teal-100 text-[11px]">
+                        <span className="text-slate-600">
+                          Berkas: <strong className="text-slate-800">{naskah.dokumenFinal.namaFile}</strong> (
                           {Math.round((naskah.dokumenFinal.ukuranFile || 0) / 1024)} KB)
                         </span>
                         {naskah.dokumenFinal.dataUrl && (
                           <a
                             href={naskah.dokumenFinal.dataUrl}
                             download={naskah.dokumenFinal.namaFile}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                            className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#1a6bb5] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Unduh Dokumen PDF Sah</span>

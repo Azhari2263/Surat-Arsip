@@ -25,7 +25,7 @@ export const DAFTAR_KLASIFIKASI_BPS: KlasifikasiItem[] = [
   { kode: 'HK.010', nama: 'Penyusunan Peraturan, Keputusan & Advokasi', kategori: 'Hukum' },
 ];
 
-export const TIM_KERJA_OPTIONS = [
+export const DAFTAR_TIM_KERJA = [
   'Tim SDM',
   'Tim Keuangan',
   'Tim Perencanaan',
@@ -35,17 +35,11 @@ export const TIM_KERJA_OPTIONS = [
   'Tim Produksi',
   'Tim IPDS',
   'Tim Umum & Humas',
-  'SDM dan Hukum',
-  'Sekretaris',
-  'Tim Umum',
-  'Keuangan',
-  'Produksi',
-  'Distribusi',
-  'Sosial',
-  'Neraca',
-  'IPDS',
-  'Lainnya',
-];
+  'Tata Usaha / Kearsipan',
+  'Pimpinan & TU Kepala',
+] as const;
+
+export const TIM_KERJA_OPTIONS: string[] = [...DAFTAR_TIM_KERJA];
 
 export const BULAN_LIST = [
   'Januari',
@@ -62,6 +56,8 @@ export const BULAN_LIST = [
   'Desember',
 ];
 
+export const DEFAULT_DRIVE_FOLDER_ID = '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S';
+
 export const DEFAULT_CONFIG = {
   spreadsheetId: '1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg',
   appsScriptUrl: 'https://script.google.com/macros/s/AKfycbwqkoaf5CgOLS8bnGJHwCacg7nR92XyA68pcqbvOPouMghd9HA7j62Hezojh-wPS0_h/exec',
@@ -70,4 +66,5 @@ export const DEFAULT_CONFIG = {
   kodeUnit: '6100',
   whatsappAdmin: '6281253817688',
   enableMondayRule: true,
+  googleDriveFolderId: DEFAULT_DRIVE_FOLDER_ID,
 };

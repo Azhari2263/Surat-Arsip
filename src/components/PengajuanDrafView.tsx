@@ -39,7 +39,7 @@ import {
   UserProfile,
   UserRole,
 } from '../types';
-import { TIM_KERJA_OPTIONS, DAFTAR_KLASIFIKASI_BPS } from '../data/bpsClassifications';
+import { TIM_KERJA_OPTIONS, DAFTAR_TIM_KERJA, DAFTAR_KLASIFIKASI_BPS } from '../data/bpsClassifications';
 import { tentukanVerifikator } from '../data/verifikatorData';
 import { NaskahTimelineModal } from './NaskahTimelineModal';
 import { formatTanggalIndo } from '../utils/storage';
@@ -125,13 +125,20 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
   const [modePenomoran, setModePenomoran] = useState<'baru' | 'kosong'>('baru');
   const [selectedKosongNomor, setSelectedKosongNomor] = useState<number | null>(null);
 
-  // Field Tim Kerja Konseptor: Read-Only, terisi otomatis dari profil akun login
-  const unitKerja = useMemo(() => {
+  // Field Tim Kerja Konseptor: Read-Only otomatis dari profil akun login; Admin dapat memilih dari daftar dropdown
+  const [adminSelectedUnitKerja, setAdminSelectedUnitKerja] = useState<string>(() => {
     if (currentUser.unitKerja && currentUser.unitKerja !== 'Semua Unit Kerja') {
       return currentUser.unitKerja;
     }
-    return 'Sosial'; // Fallback aman
-  }, [currentUser.unitKerja]);
+    return 'Tim Sosial';
+  });
+
+  const unitKerja = useMemo(() => {
+    if (currentUser.role === 'KONSEPTOR') {
+      return currentUser.unitKerja || 'Tim Sosial';
+    }
+    return adminSelectedUnitKerja;
+  }, [currentUser.role, currentUser.unitKerja, adminSelectedUnitKerja]);
 
   // Penentuan Verifikator Otomatis berdasarkan Unit Kerja Akun Konseptor
   const verifikatorInfo = useMemo(() => tentukanVerifikator(unitKerja), [unitKerja]);
@@ -353,7 +360,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
         return 'bg-emerald-100 text-emerald-900 border-emerald-200';
       case 'SELESAI_ARSIP':
       case 'FINAL_DIARSIPKAN':
-        return 'bg-slate-900 text-emerald-400 border-slate-700';
+        return 'bg-teal-100 text-teal-800 border-teal-200';
       default:
         return 'bg-slate-100 text-slate-800 border-slate-200';
     }
@@ -748,13 +755,13 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                         <div
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
                             isArchived
-                              ? 'bg-slate-900 border-slate-700 text-emerald-400'
+                              ? 'bg-teal-50 border-teal-200 text-teal-800'
                               : 'bg-slate-50 border-slate-200 text-slate-400'
                           }`}
                         >
                           <div
                             className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                              isArchived ? 'bg-emerald-500 text-slate-900' : 'bg-slate-300 text-slate-600'
+                              isArchived ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-600'
                             }`}
                           >
                             5
@@ -1112,23 +1119,47 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                 <div>
                   <label className="block font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                     <span>Tim Kerja Konseptor</span>
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <Lock className="w-2.5 h-2.5" />
-                      <span>Terkunci Otomatis</span>
-                    </span>
+                    {currentUser.role === 'KONSEPTOR' ? (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Terkunci Otomatis (Profil Akun)</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                        Pilihan Dropdown
+                      </span>
+                    )}
                   </label>
                   <div className="relative">
-                    <input
-                      type="text"
-                      readOnly
-                      disabled
-                      value={unitKerja}
-                      className="w-full h-10 px-3.5 pr-10 rounded-xl border border-slate-300 bg-slate-100 text-slate-800 font-bold text-xs sm:text-sm cursor-not-allowed select-none"
-                    />
-                    <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                    {currentUser.role === 'KONSEPTOR' ? (
+                      <>
+                        <input
+                          type="text"
+                          readOnly
+                          disabled
+                          value={unitKerja}
+                          className="w-full h-10 px-3.5 pr-10 rounded-xl border border-slate-300 bg-slate-100 text-slate-800 font-bold text-xs sm:text-sm cursor-not-allowed select-none"
+                        />
+                        <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                      </>
+                    ) : (
+                      <select
+                        value={unitKerja}
+                        onChange={(e) => setAdminSelectedUnitKerja(e.target.value)}
+                        className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white text-slate-800 font-semibold text-xs sm:text-sm focus:border-[#0f4c82] outline-none"
+                      >
+                        {DAFTAR_TIM_KERJA.map((tim) => (
+                          <option key={tim} value={tim}>
+                            {tim}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Tim kerja terisi otomatis dari profil akun Anda ({currentUser.username}) dan tidak dapat diubah secara manual.
+                    {currentUser.role === 'KONSEPTOR'
+                      ? `Tim kerja terisi otomatis dari profil akun Anda (${currentUser.username}) dan tidak dapat diubah secara manual.`
+                      : 'Pilih tim kerja pengaju dari daftar tim kerja resmi BPS Kalbar.'}
                   </p>
                 </div>
 

@@ -30,6 +30,7 @@ export interface AppConfig {
   kodeUnit: string;
   whatsappAdmin: string;
   enableMondayRule: boolean;
+  googleDriveFolderId?: string;
 }
 
 export interface SubmitSuratPayload {
@@ -192,6 +193,10 @@ export interface DokumenFinal {
   kodeUnitArsip: string;
   tingkatKeamanan: 'Biasa' | 'Terbatas' | 'Rahasia' | 'Sangat Rahasia';
   lokasiPenyimpanan?: string;
+  driveFileId?: string;
+  driveUrl?: string;
+  driveFolderId?: string;
+  driveFolderPath?: string;
 }
 
 export interface NaskahDinas {
@@ -227,6 +232,10 @@ export interface NaskahDinas {
   dokumenFinal?: DokumenFinal;
   waktuUpdate: string;
   ringkasanIsi?: string;
+  driveDraftFileId?: string;
+  driveDraftUrl?: string;
+  driveDraftFolderId?: string;
+  driveDraftFolderPath?: string;
 }
 
 export interface TemplateNaskah {

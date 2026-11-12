@@ -582,7 +582,7 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
                 </button>
                 <button
                   onClick={() => setSelectedDetail(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#0f4c82] hover:bg-[#1a6bb5] text-white text-xs font-semibold cursor-pointer transition-colors"
                 >
                   Tutup
                 </button>

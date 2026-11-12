@@ -13,8 +13,8 @@ import {
   Search,
   Building,
 } from 'lucide-react';
-import { KodeSuratType, SubmitSuratPayload, SuratKeluar } from '../types';
-import { BULAN_LIST, DAFTAR_KLASIFIKASI_BPS, TIM_KERJA_OPTIONS } from '../data/bpsClassifications';
+import { KodeSuratType, SubmitSuratPayload, SuratKeluar, UserProfile } from '../types';
+import { BULAN_LIST, DAFTAR_KLASIFIKASI_BPS, TIM_KERJA_OPTIONS, DAFTAR_TIM_KERJA } from '../data/bpsClassifications';
 import { formatTanggalIndo } from '../utils/storage';
 
 interface LetterFormProps {
@@ -23,6 +23,7 @@ interface LetterFormProps {
   preselectedKosong?: SuratKeluar | null;
   onClearPreselectedKosong?: () => void;
   nextNomorBaru: number;
+  currentUser?: UserProfile | null;
 }
 
 export const LetterForm: React.FC<LetterFormProps> = ({
@@ -31,6 +32,7 @@ export const LetterForm: React.FC<LetterFormProps> = ({
   preselectedKosong,
   onClearPreselectedKosong,
   nextNomorBaru,
+  currentUser,
 }) => {
   // Mode: 'baru' | 'kosong'
   const [mode, setMode] = useState<'baru' | 'kosong'>('baru');
@@ -79,6 +81,18 @@ export const LetterForm: React.FC<LetterFormProps> = ({
       setSelectedKosongItem(preselectedKosong);
     }
   }, [preselectedKosong]);
+
+  // Sync profile if Konseptor
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.role === 'KONSEPTOR' && currentUser.unitKerja) {
+        setTimKerja(currentUser.unitKerja);
+      }
+      if (currentUser.nama && !namaPegawai) {
+        setNamaPegawai(currentUser.nama);
+      }
+    }
+  }, [currentUser]);
 
   // Filtered empty numbers based on month chip
   const filteredEmptyList = emptyList.filter(item => {
@@ -141,9 +155,7 @@ export const LetterForm: React.FC<LetterFormProps> = ({
     }
 
     if (!timKerja) {
-      newErrors.timKerja = 'Pilih tim kerja pemohon';
-    } else if (timKerja === 'Lainnya' && !timKerjaLainnya.trim()) {
-      newErrors.timKerjaLainnya = 'Nama tim kerja lainnya wajib diisi';
+      newErrors.timKerja = 'Pilih tim kerja pemohon dari daftar';
     }
 
     if (mode === 'kosong' && !selectedKosongItem) {
@@ -169,7 +181,6 @@ export const LetterForm: React.FC<LetterFormProps> = ({
           tanggalSurat,
           namaPegawai: namaPegawai.trim(),
           timKerja,
-          timKerjaLainnya: timKerjaLainnya.trim(),
           isKosongMode: mode === 'kosong',
           nomorUrutKosong: selectedKosongItem ? selectedKosongItem.nomorUrut : null,
           fileAttachment: uploadedFile || undefined,
@@ -665,49 +676,56 @@ export const LetterForm: React.FC<LetterFormProps> = ({
 
             {/* TIM KERJA */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Tim Kerja <span className="text-red-500">*</span>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                <span>Tim Kerja <span className="text-red-500">*</span></span>
+                {currentUser?.role === 'KONSEPTOR' ? (
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>Terkunci Otomatis (Profil Konseptor)</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                    Pilihan Dropdown
+                  </span>
+                )}
               </label>
               <div className="relative">
-                <select
-                  value={timKerja}
-                  onChange={(e) => setTimKerja(e.target.value)}
-                  className={`w-full px-3.5 py-2.5 rounded-lg border text-sm appearance-none pr-10 transition-all ${
-                    errors.timKerja
-                      ? 'border-red-500 bg-red-50/30 focus:ring-2 focus:ring-red-200'
-                      : 'border-slate-300 bg-slate-50/40 focus:bg-white focus:border-[#1a6bb5] focus:ring-2 focus:ring-blue-100'
-                  }`}
-                >
-                  <option value="">— Pilih Tim Kerja —</option>
-                  {TIM_KERJA_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
+                {currentUser?.role === 'KONSEPTOR' ? (
+                  <>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={timKerja}
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-lg border border-slate-300 bg-slate-100 text-slate-800 font-bold text-sm cursor-not-allowed select-none"
+                    />
+                    <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+                  </>
+                ) : (
+                  <>
+                    <select
+                      value={timKerja}
+                      onChange={(e) => setTimKerja(e.target.value)}
+                      className={`w-full px-3.5 py-2.5 rounded-lg border text-sm appearance-none pr-10 transition-all ${
+                        errors.timKerja
+                          ? 'border-red-500 bg-red-50/30 focus:ring-2 focus:ring-red-200'
+                          : 'border-slate-300 bg-slate-50/40 focus:bg-white focus:border-[#1a6bb5] focus:ring-2 focus:ring-blue-100'
+                      }`}
+                    >
+                      <option value="">— Pilih Tim Kerja —</option>
+                      {DAFTAR_TIM_KERJA.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
+                  </>
+                )}
               </div>
 
               {errors.timKerja && (
                 <p className="text-[11px] text-red-600 font-medium mt-1">{errors.timKerja}</p>
-              )}
-
-              {/* Conditional Tim Kerja Lainnya */}
-              {timKerja === 'Lainnya' && (
-                <div className="mt-2.5">
-                  <input
-                    type="text"
-                    value={timKerjaLainnya}
-                    onChange={(e) => setTimKerjaLainnya(e.target.value)}
-                    placeholder="Tuliskan nama tim kerja lainnya..."
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-sm focus:border-[#1a6bb5] focus:ring-2 focus:ring-blue-100"
-                  />
-                  {errors.timKerjaLainnya && (
-                    <p className="text-[11px] text-red-600 font-medium mt-1">
-                      {errors.timKerjaLainnya}
-                    </p>
-                  )}
-                </div>
               )}
             </div>
 

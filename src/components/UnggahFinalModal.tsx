@@ -224,6 +224,20 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
 
           </div>
 
+          {/* Lokasi Target Google Drive */}
+          <div className="p-3 bg-teal-50/80 border border-teal-200 rounded-xl text-xs space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-teal-900">
+              <Archive className="w-4 h-4 text-teal-700" />
+              <span>Hierarki Google Drive Otomatis:</span>
+            </div>
+            <div className="p-2 bg-white rounded-lg border border-teal-100 font-mono text-[11px] text-teal-900 font-semibold">
+              Folder Induk &gt; {new Date().getFullYear()} &gt; {naskah.unitKerja} &gt; Arsip
+            </div>
+            <p className="text-[10px] text-slate-500">
+              Dokumen draf akan dipindahkan ke folder <strong>Arsip</strong> resmi, terhubung ke nomor surat dan Sheet ArsipDigital tanpa duplikasi.
+            </p>
+          </div>
+
           {/* Unggah Softcopy PDF Final */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">

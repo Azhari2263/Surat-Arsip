@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   FileSpreadsheet,
+  Folder,
+  FolderTree,
 } from 'lucide-react';
 import { AppConfig, SuratKeluar } from '../types';
 
@@ -40,6 +42,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [whatsappAdmin, setWhatsappAdmin] = useState(config.whatsappAdmin);
   const [appsScriptUrl, setAppsScriptUrl] = useState(config.appsScriptUrl || '');
   const [enableMondayRule, setEnableMondayRule] = useState(config.enableMondayRule);
+  const [googleDriveFolderId, setGoogleDriveFolderId] = useState(config.googleDriveFolderId || '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S');
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,8 +54,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       whatsappAdmin: whatsappAdmin.trim(),
       appsScriptUrl: appsScriptUrl.trim(),
       enableMondayRule,
+      googleDriveFolderId: googleDriveFolderId.trim() || '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S',
     });
-    onToast('✔ Pengaturan sistem dan spreadsheet berhasil disimpan!');
+    onToast('✔ Pengaturan sistem, spreadsheet, dan Google Drive berhasil disimpan!');
     onClose();
   };
 
@@ -244,6 +248,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs focus:border-[#1a6bb5]"
               />
               <p className="text-[10px] text-slate-400 mt-0.5">Format internasional (diawali 62)</p>
+            </div>
+
+            {/* Google Drive Parent Folder ID */}
+            <div className="sm:col-span-2 p-3.5 bg-blue-50/70 rounded-xl border border-blue-200">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="font-bold text-[#0f4c82] flex items-center gap-1.5 text-xs">
+                  <Folder className="w-4 h-4 text-[#0f4c82]" />
+                  <span>ID Folder Induk Google Drive (Penyimpanan Digital)</span>
+                </label>
+                {googleDriveFolderId && (
+                  <a
+                    href={`https://drive.google.com/drive/folders/${googleDriveFolderId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-[#0f4c82] hover:underline font-semibold"
+                  >
+                    <span>Buka Folder Drive</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+              <input
+                type="text"
+                value={googleDriveFolderId}
+                onChange={(e) => setGoogleDriveFolderId(e.target.value)}
+                placeholder="1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S"
+                className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white font-mono text-xs focus:border-[#0f4c82] focus:ring-1 focus:ring-blue-200 outline-none"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Folder induk pusat penyimpanan arsip digital. Struktur hierarki folder otomatis:
+              </p>
+              <div className="mt-2 p-2 bg-white rounded-lg border border-blue-100 font-mono text-[11px] text-slate-700 leading-relaxed">
+                <div>Folder Induk ({googleDriveFolderId || '1_Xsmp2daf...'})</div>
+                <div className="pl-3 text-slate-500">├── Tahun (misal: 2026)</div>
+                <div className="pl-6 text-slate-500">└── Tim Kerja (misal: Tim Sosial)</div>
+                <div className="pl-9 text-slate-500">└── Bulan (misal: 11 - November)</div>
+                <div className="pl-12 text-blue-700 font-bold">├── Draft (Draf naskah & revisi)</div>
+                <div className="pl-12 text-emerald-700 font-bold">└── Arsip (Dokumen final sah bertanda tangan)</div>
+              </div>
             </div>
 
           </div>

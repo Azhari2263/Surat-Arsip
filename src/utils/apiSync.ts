@@ -153,6 +153,19 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // 6. Google Drive Storage Otomatis (Hierarki: Tahun > Tim Kerja > Bulan > Draft / Arsip)
+    if (action === "uploadDraftToDrive") {
+      const res = handleUploadDraftDrive(payload.data || payload);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "archiveFinalToDrive") {
+      const res = handleArchiveFinalDrive(payload.data || payload);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       success: false,
       error: "Aksi tidak dikenal: " + action
@@ -1020,6 +1033,126 @@ function deleteUserRecord(data, customSs) {
     }
   }
   return { success: false, error: "Pengguna tidak ditemukan di sheet Pengguna" };
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════
+ * GOOGLE DRIVE HIERARCHICAL STORAGE AUTOMATION
+ * Folder Induk: 1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S
+ * └── {Tahun} (cth: 2026)
+ *     └── {Tim Kerja} (cth: Tim Sosial)
+ *         └── {Bulan} (cth: 11 - November)
+ *             ├── Draft
+ *             └── Arsip
+ * ══════════════════════════════════════════════════════════════════
+ */
+function getOrCreateDriveFolder(parentFolder, name) {
+  const folders = parentFolder.getFoldersByName(name);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+  return parentFolder.createFolder(name);
+}
+
+function resolveDriveTargetFolder(rootFolderId, tahun, timKerja, bulan, subfolderName) {
+  const root = DriveApp.getFolderById(rootFolderId || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S");
+  const fTahun = getOrCreateDriveFolder(root, String(tahun));
+  const fTim = getOrCreateDriveFolder(fTahun, String(timKerja));
+  const fBulan = getOrCreateDriveFolder(fTim, String(bulan));
+  const fTarget = getOrCreateDriveFolder(fBulan, String(subfolderName));
+  return fTarget;
+}
+
+function handleUploadDraftDrive(data) {
+  try {
+    const rootId = data.rootFolderId || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
+    const tahun = data.tahun || String(new Date().getFullYear());
+    const timKerja = data.timKerja || "Tim Umum";
+    const bulan = data.bulan || "01 - Januari";
+    const fileName = data.fileName || ("DRAF_" + data.nomorRegistrasi + ".docx");
+    const targetFolder = resolveDriveTargetFolder(rootId, tahun, timKerja, bulan, "Draft");
+
+    let existingFile = null;
+    if (data.existingFileId) {
+      try { existingFile = DriveApp.getFileById(data.existingFileId); } catch(e) {}
+    }
+    if (!existingFile) {
+      const files = targetFolder.getFilesByName(fileName);
+      if (files.hasNext()) {
+        existingFile = files.next();
+      }
+    }
+
+    let file;
+    let actionTaken = "created";
+
+    if (data.fileDataUrl && data.fileDataUrl.indexOf("base64,") !== -1) {
+      const base64Data = data.fileDataUrl.split("base64,")[1];
+      const decodedBytes = Utilities.base64Decode(base64Data);
+      const blob = Utilities.newBlob(decodedBytes, data.mimeType || "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
+      if (existingFile) {
+        existingFile.setTrashed(true);
+        actionTaken = "updated";
+      }
+      file = targetFolder.createFile(blob);
+    } else if (existingFile) {
+      file = existingFile;
+      actionTaken = "updated";
+    } else {
+      file = targetFolder.createFile(fileName, "Draf Naskah Dinas BPS Kalbar (" + data.nomorRegistrasi + ")", data.mimeType || MimeType.PLAIN_TEXT);
+    }
+
+    return {
+      success: true,
+      fileId: file.getId(),
+      fileUrl: file.getUrl(),
+      folderId: targetFolder.getId(),
+      folderUrl: targetFolder.getUrl(),
+      actionTaken: actionTaken
+    };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
+}
+
+function handleArchiveFinalDrive(data) {
+  try {
+    const rootId = data.rootFolderId || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
+    const tahun = data.tahun || String(new Date().getFullYear());
+    const timKerja = data.timKerja || "Tim Umum";
+    const bulan = data.bulan || "01 - Januari";
+    const fileName = data.fileName || (data.nomorSuratResmi + ".pdf");
+    const targetFolder = resolveDriveTargetFolder(rootId, tahun, timKerja, bulan, "Arsip");
+
+    // Bersihkan draft lama di folder Draft untuk mencegah duplikasi
+    if (data.draftFileId) {
+      try {
+        const oldDraft = DriveApp.getFileById(data.draftFileId);
+        oldDraft.setTrashed(true);
+      } catch(e) {}
+    }
+
+    let file;
+    if (data.fileDataUrl && data.fileDataUrl.indexOf("base64,") !== -1) {
+      const base64Data = data.fileDataUrl.split("base64,")[1];
+      const decodedBytes = Utilities.base64Decode(base64Data);
+      const blob = Utilities.newBlob(decodedBytes, data.mimeType || "application/pdf", fileName);
+      file = targetFolder.createFile(blob);
+    } else {
+      file = targetFolder.createFile(fileName, "Arsip Dokumen Final BPS Kalbar (" + data.nomorSuratResmi + ")", "application/pdf");
+    }
+
+    return {
+      success: true,
+      fileId: file.getId(),
+      fileUrl: file.getUrl(),
+      folderId: targetFolder.getId(),
+      folderUrl: targetFolder.getUrl(),
+      actionTaken: "moved"
+    };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
 }
 `;
 
