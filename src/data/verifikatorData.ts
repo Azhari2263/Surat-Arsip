@@ -50,8 +50,21 @@ export const VERIFIKATOR_MAPPING: VerifikatorMappingItem[] = [
 // Tidak ada akun, username, atau password dummy / hardcode di kode aplikasi.
 export const DAFTAR_PENGGUNA: UserProfile[] = [];
 
-export function tentukanVerifikator(unitKerja: string): { nama: string; role: UserRole; deskripsi: string } {
-  const normalized = unitKerja.toLowerCase();
+export function tentukanVerifikator(
+  unitKerja: string,
+  customMapping?: Record<string, { nama: string; role: UserRole; deskripsi?: string }>
+): { nama: string; role: UserRole; deskripsi: string } {
+  // Jika terdapat pemetaan kustom dari database Spreadsheet Pengaturan
+  if (customMapping && customMapping[unitKerja]) {
+    const item = customMapping[unitKerja];
+    return {
+      nama: item.nama,
+      role: item.role,
+      deskripsi: item.deskripsi || `Verifikator untuk ${unitKerja}`,
+    };
+  }
+
+  const normalized = (unitKerja || '').toLowerCase();
 
   // M. Yun Imran, S.E.: Tim SDM dan Tim Keuangan
   if (normalized.includes('sdm') || normalized.includes('hukum') || normalized.includes('keuangan')) {

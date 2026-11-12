@@ -151,7 +151,7 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
             }`}
           >
             <Table2 className="w-4 h-4" />
-            <span>Skema Struktur Tabel (3 Sheet)</span>
+            <span>Skema Struktur Tabel (6 Sheet Terpadu)</span>
           </button>
           <button
             onClick={() => setActiveTab('code')}
@@ -402,6 +402,43 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
                     <span className="bg-slate-100 p-1.5 rounded">J: Modul Diizinkan</span>
                     <span className="bg-slate-100 p-1.5 rounded">K: Status (AKTIF/NONAKTIF)</span>
                     <span className="bg-slate-100 p-1.5 rounded">L: Waktu Update</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sheet 5 */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="bg-[#0f4c82] text-white px-4 py-2 text-xs font-bold flex items-center justify-between">
+                  <span>Lembar 5: Pengaturan (Konfigurasi & Parameter Sistem Terpusat)</span>
+                  <span className="font-mono text-[11px] bg-white/20 px-2 py-0.5 rounded">5 Kolom</span>
+                </div>
+                <div className="p-3 text-xs bg-white space-y-1.5 font-mono text-slate-700">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+                    <span className="bg-slate-100 p-1.5 rounded">A: Kunci Pengaturan (Key)</span>
+                    <span className="bg-slate-100 p-1.5 rounded">B: Nilai Konfigurasi (Value)</span>
+                    <span className="bg-slate-100 p-1.5 rounded">C: Kategori Setting</span>
+                    <span className="bg-slate-100 p-1.5 rounded">D: Keterangan Parameter</span>
+                    <span className="bg-slate-100 p-1.5 rounded">E: Terakhir Diperbarui</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sheet 6 */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="bg-[#7c3aed] text-white px-4 py-2 text-xs font-bold flex items-center justify-between">
+                  <span>Lembar 6: LogAktivitas (Sinkronisasi Realtime & Audit Notifikasi)</span>
+                  <span className="font-mono text-[11px] bg-white/20 px-2 py-0.5 rounded">9 Kolom</span>
+                </div>
+                <div className="p-3 text-xs bg-white space-y-1.5 font-mono text-slate-700">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                    <span className="bg-slate-100 p-1.5 rounded">A: ID Aktivitas</span>
+                    <span className="bg-slate-100 p-1.5 rounded">B: Waktu Kejadian</span>
+                    <span className="bg-slate-100 p-1.5 rounded">C: Judul Notifikasi</span>
+                    <span className="bg-slate-100 p-1.5 rounded">D: Deskripsi Detail</span>
+                    <span className="bg-slate-100 p-1.5 rounded">E: Pelaku (Aktor)</span>
+                    <span className="bg-slate-100 p-1.5 rounded">F: Role Pelaku</span>
+                    <span className="bg-slate-100 p-1.5 rounded">G: Nomor Registrasi/Surat</span>
+                    <span className="bg-slate-100 p-1.5 rounded">H: Tipe Aktivitas</span>
                   </div>
                 </div>
               </div>

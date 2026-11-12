@@ -1,4 +1,4 @@
-import { AppConfig, DokumenFinal, NaskahDinas } from '../types';
+import { AppConfig, DokumenFinal, NaskahDinas, RiwayatPenghapusanAudit } from '../types';
 import { BULAN_LIST, DEFAULT_DRIVE_FOLDER_ID } from '../data/bpsClassifications';
 
 export interface DriveFolderHierarchy {
@@ -294,5 +294,146 @@ export async function archiveFinalToDriveSync(
     folderPath: hierarchy.fullPath,
     fileName: standardizedName,
     actionTaken: 'moved',
+  };
+}
+
+/**
+ * Sinkronisasi penghapusan seluruh berkas terkait pengajuan/arsip dari Google Drive
+ * Mengidentifikasi berkas berdasarkan File ID unik Google Drive
+ */
+export async function deleteDriveFilesSync(
+  fileIds: (string | undefined)[],
+  context: {
+    nomorRegistrasi?: string;
+    nomorSurat?: string;
+    nomorIdentitas?: string;
+    tipe?: 'DRAF' | 'ARSIP';
+    perihal?: string;
+  },
+  config: AppConfig,
+  actor: {
+    nama: string;
+    role: string;
+  }
+): Promise<{
+  success: boolean;
+  deletedCount: number;
+  deletedIds: string[];
+  failedIds: any[];
+  error?: string;
+  auditRecord: RiwayatPenghapusanAudit;
+}> {
+  // Filter file ID yang valid (bukan null/kosong dan bukan ID folder induk)
+  const validFileIds: string[] = fileIds.filter(
+    (id): id is string =>
+      Boolean(id) &&
+      typeof id === 'string' &&
+      id.trim().length > 5 &&
+      id !== DEFAULT_DRIVE_FOLDER_ID &&
+      id !== config.googleDriveFolderId
+  );
+
+  const nomorId = context.nomorIdentitas || context.nomorRegistrasi || context.nomorSurat || '-';
+  const now = new Date();
+  const waktuStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`;
+
+  if (validFileIds.length === 0) {
+    const auditRecord: RiwayatPenghapusanAudit = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      waktu: waktuStr,
+      pengguna: actor.nama,
+      dihapusOleh: actor.nama,
+      rolePengguna: actor.role,
+      role: actor.role,
+      tipe: context.tipe || 'DRAF',
+      tipeData: context.tipe === 'ARSIP' ? 'ARSIP_DIGITAL' : 'NASKAH_DRAF',
+      nomorIdentifikasi: nomorId,
+      nomorIdentitas: nomorId,
+      perihal: context.perihal || '-',
+      unitKerja: 'BPS Kalbar',
+      fileIdsDrive: [],
+      statusDrive: 'TIDAK_ADA_FILE',
+      jumlahFileDihapus: 0,
+      keterangan: 'Tidak terdapat berkas Google Drive terdaftar untuk item ini.',
+    };
+
+    return {
+      success: true,
+      deletedCount: 0,
+      deletedIds: [],
+      failedIds: [],
+      auditRecord,
+    };
+  }
+
+  let success = true;
+  let deletedCount = validFileIds.length;
+  let deletedIds = validFileIds;
+  let failedIds: any[] = [];
+  let errorMsg: string | undefined = undefined;
+
+  // Jika Apps Script terhubung, kirim perintah penghapusan berkas via DriveApp
+  if (config.appsScriptUrl) {
+    try {
+      const response = await fetch(config.appsScriptUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deleteDriveFiles',
+          fileIds: validFileIds,
+          nomorRegistrasi: context.nomorRegistrasi || nomorId,
+          nomorSurat: context.nomorSurat || nomorId,
+          perihal: context.perihal || '-',
+          actor: actor.nama,
+          actorRole: actor.role,
+          spreadsheetId: config.spreadsheetId,
+        }),
+      });
+      const data = await response.json();
+      if (data) {
+        success = data.success !== false;
+        deletedCount = typeof data.deletedCount === 'number' ? data.deletedCount : validFileIds.length;
+        deletedIds = data.deletedIds || validFileIds;
+        failedIds = data.failedIds || [];
+        errorMsg = data.error;
+      }
+    } catch (err: any) {
+      // Fallback lokal jika jaringan offline
+      success = false;
+      deletedCount = 0;
+      deletedIds = [];
+      failedIds = validFileIds.map((id) => ({ id, error: err.message || 'Gagal koneksi' }));
+      errorMsg = err.message || 'Koneksi ke Apps Script gagal';
+    }
+  }
+
+  const auditRecord: RiwayatPenghapusanAudit = {
+    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    waktu: waktuStr,
+    pengguna: actor.nama,
+    dihapusOleh: actor.nama,
+    rolePengguna: actor.role,
+    role: actor.role,
+    tipe: context.tipe || 'DRAF',
+    tipeData: context.tipe === 'ARSIP' ? 'ARSIP_DIGITAL' : 'NASKAH_DRAF',
+    nomorIdentifikasi: nomorId,
+    nomorIdentitas: nomorId,
+    perihal: context.perihal || '-',
+    unitKerja: 'BPS Kalbar',
+    fileIdsDrive: validFileIds,
+    statusDrive: success ? 'BERHASIL' : 'GAGAL',
+    jumlahFileDihapus: deletedCount,
+    keterangan: success
+      ? `${deletedCount} file Google Drive berhasil dihapus.`
+      : `Penghapusan Google Drive gagal: ${errorMsg || 'Izin ditolak'}.`,
+  };
+
+  return {
+    success,
+    deletedCount,
+    deletedIds,
+    failedIds,
+    error: errorMsg,
+    auditRecord,
   };
 }

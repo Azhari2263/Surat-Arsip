@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  AktivitasNotifikasi,
   AppConfig,
   ChecklistVerifikasi,
   DokumenFinal,
   NaskahDinas,
+  RiwayatPenghapusanAudit,
   SubmitResult,
   SubmitSuratPayload,
   SuratKeluar,
+  TipeAktivitas,
   UserProfile,
 } from './types';
 import {
@@ -79,12 +82,16 @@ import {
   syncDeleteArsip,
   syncSaveUser,
   syncDeleteUser,
+  syncSaveSpreadsheetConfig,
+  syncLogActivity,
 } from './utils/apiSync';
 import { ExternalLink, Layers, FileText, Table2, BarChart3, ShieldAlert } from 'lucide-react';
 import { parseCurrentRoute, navigateTo, checkTabPermission } from './utils/router';
-import { uploadDraftToDriveSync, archiveFinalToDriveSync } from './utils/googleDriveSync';
+import { uploadDraftToDriveSync, archiveFinalToDriveSync, deleteDriveFilesSync } from './utils/googleDriveSync';
 
 const STORAGE_KEY_AUTH_USER = 'bps_kalbar_active_user_v1';
+const STORAGE_KEY_NOTIFIKASI = 'bps_kalbar_notifikasi_v1';
+const STORAGE_KEY_AUDIT_PENGHAPUSAN = 'bps_kalbar_audit_penghapusan_v1';
 
 export default function App() {
   // Config & Data state
@@ -141,47 +148,233 @@ export default function App() {
   const [showSetupDatabase, setShowSetupDatabase] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
 
-  // Background fetch from Spreadsheet on startup
+  // In-App Real-Time Activity Notifications State
+  const [notifications, setNotifications] = useState<AktivitasNotifikasi[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_NOTIFIKASI);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [
+      {
+        id: 'notif-init-1',
+        waktu: 'Hari ini',
+        judul: 'Sistem Terhubung',
+        deskripsi: 'Sistem Pengelolaan Naskah Dinas & Arsip Digital BPS Kalbar siap digunakan.',
+        pelaku: 'Sistem BPS Kalbar',
+        rolePelaku: 'ADMIN',
+        tipeAktivitas: 'PENGATURAN_UPDATE',
+        targetRoles: ['ADMIN', 'ARSIPARIS', 'KONSEPTOR', 'VERIFIKATOR_IPDS', 'VERIFIKATOR_DISTRIBUSI', 'VERIFIKATOR_PRODUKSI', 'VERIFIKATOR_NERACA', 'VERIFIKATOR_SOSIAL', 'VERIFIKATOR_UMUM'],
+        dibaca: false,
+      },
+    ];
+  });
+
+  // Audit Log Penghapusan Data & Google Drive Files
+  const [riwayatPenghapusanAudit, setRiwayatPenghapusanAudit] = useState<RiwayatPenghapusanAudit[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_AUDIT_PENGHAPUSAN);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  });
+
+  // Add Notification Helper (Local state + Google Spreadsheet LogAktivitas sync)
+  const addActivityNotification = (
+    notifData: Omit<AktivitasNotifikasi, 'id' | 'waktu' | 'dibaca'>
+  ) => {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`;
+    const newNotif: AktivitasNotifikasi = {
+      ...notifData,
+      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      waktu: timeStr,
+      dibaca: false,
+    };
+
+    setNotifications((prev) => {
+      const updated = [newNotif, ...prev].slice(0, 100);
+      try {
+        localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    if (config.appsScriptUrl) {
+      syncLogActivity(newNotif, config).catch(() => {});
+    }
+  };
+
+  const handleMarkNotificationRead = (id: string) => {
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (n.id === id ? { ...n, dibaca: true } : n));
+      try {
+        localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, dibaca: true }));
+      try {
+        localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  // Ref to track last seen naskah list for diffing during polling
+  const previousNaskahMapRef = useRef<Map<string, NaskahDinas>>(new Map());
+
+  // Continuous background sync from Spreadsheet and periodic polling
   useEffect(() => {
     let isMounted = true;
-    if (config.appsScriptUrl && config.spreadsheetId) {
-      setIsSyncing(true);
-      fetchSpreadsheetData(config)
-        .then((res) => {
-          if (!isMounted) return;
-          if (res.success) {
-            if (Array.isArray(res.suratList)) {
-              setSuratList(res.suratList);
-              saveStoredSuratList(res.suratList);
-            }
-            if (Array.isArray(res.naskahList)) {
-              setNaskahList(res.naskahList);
-              saveStoredNaskahList(res.naskahList);
-            }
-            if (Array.isArray(res.userList) && res.userList.length > 0) {
-              setUserList(res.userList);
-              saveStoredUserList(res.userList);
-              setCurrentUser((curr) => {
-                if (!curr) return null;
-                const fresh = res.userList!.find(
-                  (u) => u.id === curr.id || u.username.toLowerCase() === curr.username.toLowerCase()
-                );
-                return fresh || curr;
-              });
-            }
+    if (!config.appsScriptUrl || !config.spreadsheetId) return;
+
+    const intervalSec = Math.max(5, config.syncIntervalSeconds || 10);
+
+    const performSync = async (isInitial = false) => {
+      if (isInitial) setIsSyncing(true);
+      try {
+        const res = await fetchSpreadsheetData(config);
+        if (!isMounted || !res.success) return;
+
+        // Remote Config Auto-Sync
+        if (res.remoteConfig) {
+          setConfig((prev) => {
+            const merged = { ...prev, ...res.remoteConfig };
+            saveStoredConfig(merged);
+            return merged;
+          });
+        }
+
+        // Surat Keluar Auto-Sync
+        if (Array.isArray(res.suratList)) {
+          setSuratList(res.suratList);
+          saveStoredSuratList(res.suratList);
+        }
+
+        // Users Auto-Sync
+        if (Array.isArray(res.userList) && res.userList.length > 0) {
+          setUserList(res.userList);
+          saveStoredUserList(res.userList);
+          setCurrentUser((curr) => {
+            if (!curr) return null;
+            const fresh = res.userList!.find(
+              (u) => u.id === curr.id || u.username.toLowerCase() === curr.username.toLowerCase()
+            );
+            return fresh || curr;
+          });
+        }
+
+        // Naskah Dinas Auto-Sync with Real-Time Activity Notification Generator
+        if (Array.isArray(res.naskahList)) {
+          const freshList = res.naskahList;
+          const prevMap = previousNaskahMapRef.current;
+
+          if (prevMap.size > 0 && !isInitial) {
+            freshList.forEach((freshItem) => {
+              const prevItem = prevMap.get(freshItem.id);
+              if (!prevItem) {
+                // New draft submitted by another user
+                addActivityNotification({
+                  judul: `Draf Baru Diajukan: ${freshItem.nomorRegistrasi}`,
+                  deskripsi: `${freshItem.namaKonseptor} (${freshItem.unitKerja}) mengajukan draf "${freshItem.perihal}".`,
+                  pelaku: freshItem.namaKonseptor,
+                  rolePelaku: 'KONSEPTOR',
+                  naskahId: freshItem.id,
+                  nomorRegistrasi: freshItem.nomorRegistrasi,
+                  tipeAktivitas: 'PENGAJUAN_DRAF',
+                  targetRoles: ['ADMIN', freshItem.roleVerifikatorDitunjuk],
+                  targetKonseptor: freshItem.namaKonseptor,
+                });
+              } else if (prevItem.status !== freshItem.status) {
+                // Status changed by another user
+                let notifType: TipeAktivitas = 'VERIFIKASI_SETUJU';
+                let title = `Status Naskah Berubah: ${freshItem.nomorRegistrasi}`;
+                let desc = `Status naskah "${freshItem.perihal}" berubah menjadi ${freshItem.status}`;
+
+                if (freshItem.status === 'DISETUJUI' || freshItem.status === 'MENUNGGU_PENOMORAN') {
+                  notifType = 'VERIFIKASI_SETUJU';
+                  title = `Draf Disetujui: ${freshItem.nomorRegistrasi}`;
+                  desc = `Draf telah diverifikasi & disetujui oleh ${freshItem.verifikatorDitunjuk}.`;
+                } else if (freshItem.status === 'PERLU_PERBAIKAN') {
+                  notifType = 'VERIFIKASI_PERBAIKAN';
+                  title = `Perlu Perbaikan: ${freshItem.nomorRegistrasi}`;
+                  desc = `Draf dikembalikan oleh ${freshItem.verifikatorDitunjuk}. Periksa catatan verifikator.`;
+                } else if (freshItem.status === 'DITOLAK') {
+                  notifType = 'VERIFIKASI_TOLAK';
+                  title = `Draf Ditolak: ${freshItem.nomorRegistrasi}`;
+                  desc = `Draf naskah ditolak oleh ${freshItem.verifikatorDitunjuk}.`;
+                } else if (freshItem.status === 'NOMOR_DITERBITKAN' || freshItem.status === 'MENUNGGU_DOKUMEN_FINAL') {
+                  notifType = 'NOMOR_TERBIT';
+                  title = `Nomor Surat Terbit: ${freshItem.nomorSuratDipesan || freshItem.nomorRegistrasi}`;
+                  desc = `Nomor resmi ${freshItem.nomorSuratDipesan} telah terbit. Silakan selesaikan TTD dan arsip.`;
+                } else if (freshItem.status === 'SELESAI_ARSIP' || freshItem.status === 'FINAL_DIARSIPKAN') {
+                  notifType = 'UNGGAH_FINAL';
+                  title = `Arsip Final Tersimpan: ${freshItem.dokumenFinal?.nomorSuratResmi || freshItem.nomorRegistrasi}`;
+                  desc = `Dokumen final telah diarsipkan ke Google Drive & basis data BPS.`;
+                }
+
+                addActivityNotification({
+                  judul: title,
+                  deskripsi: desc,
+                  pelaku: freshItem.verifikatorDitunjuk || 'Petugas BPS',
+                  rolePelaku: freshItem.roleVerifikatorDitunjuk || 'VERIFIKATOR',
+                  naskahId: freshItem.id,
+                  nomorRegistrasi: freshItem.nomorRegistrasi,
+                  nomorSurat: freshItem.nomorSuratDipesan,
+                  tipeAktivitas: notifType,
+                  targetRoles: ['ADMIN', 'ARSIPARIS', freshItem.roleVerifikatorDitunjuk],
+                  targetKonseptor: freshItem.namaKonseptor,
+                });
+              }
+            });
           }
-        })
-        .catch(() => {
-          // Fallback silently to local cache
-        })
-        .finally(() => {
-          if (isMounted) setIsSyncing(false);
-        });
-    }
+
+          // Update map
+          const newMap = new Map<string, NaskahDinas>();
+          freshList.forEach((item) => newMap.set(item.id, item));
+          previousNaskahMapRef.current = newMap;
+
+          setNaskahList(freshList);
+          saveStoredNaskahList(freshList);
+        }
+
+        // Merge activity logs if available from Google Sheets
+        if (Array.isArray(res.activityLogs) && res.activityLogs.length > 0) {
+          setNotifications((prevNotifs) => {
+            const existingIds = new Set(prevNotifs.map((n) => n.id));
+            const newNotifs = res.activityLogs!.filter((n) => !existingIds.has(n.id));
+            if (newNotifs.length > 0) {
+              const combined = [...newNotifs, ...prevNotifs].slice(0, 100);
+              try {
+                localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(combined));
+              } catch {}
+              return combined;
+            }
+            return prevNotifs;
+          });
+        }
+      } catch {
+        // Fallback silently to cache
+      } finally {
+        if (isMounted && isInitial) setIsSyncing(false);
+      }
+    };
+
+    performSync(true);
+
+    const pollingTimer = setInterval(() => {
+      performSync(false);
+    }, intervalSec * 1000);
+
     return () => {
       isMounted = false;
+      clearInterval(pollingTimer);
     };
-  }, [config.appsScriptUrl, config.spreadsheetId]);
+  }, [config.appsScriptUrl, config.spreadsheetId, config.syncIntervalSeconds]);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -340,6 +533,38 @@ export default function App() {
     ).length;
   }, [naskahList]);
 
+  // Saring notifikasi yang relevan dengan peran dan penugasan pengguna saat ini
+  const userFilteredNotifications = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'ADMIN') return notifications;
+
+    return notifications.filter((notif) => {
+      // Ditujukan ke konseptor spesifik
+      if (
+        notif.targetKonseptor &&
+        notif.targetKonseptor.toLowerCase() === currentUser.nama.toLowerCase()
+      ) {
+        return true;
+      }
+      // Dibuat oleh pengguna saat ini
+      if (notif.pelaku && notif.pelaku.toLowerCase() === currentUser.nama.toLowerCase()) {
+        return true;
+      }
+      // Peran sasaran eksplisit
+      if (notif.targetRoles && notif.targetRoles.includes(currentUser.role)) {
+        return true;
+      }
+      // Arsiparis memantau penomoran & arsip
+      if (
+        currentUser.role === 'ARSIPARIS' &&
+        ['NOMOR_TERBIT', 'UNGGAH_FINAL', 'HAPUS_ARSIP'].includes(notif.tipeAktivitas)
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }, [notifications, currentUser]);
+
   // ══════════════════════════════════════════════════════════════════
   // NASKAH DINAS HANDLERS
   // ══════════════════════════════════════════════════════════════════
@@ -349,6 +574,20 @@ export default function App() {
     const { updatedList, newNaskah } = addNaskahDinas(data, naskahList);
     setNaskahList(updatedList);
     showToast(`✔ Draf ${newNaskah.nomorRegistrasi} berhasil diajukan dan diteruskan ke ${newNaskah.verifikatorDitunjuk}!`);
+
+    // Catat notifikasi aktivitas real-time
+    addActivityNotification({
+      judul: `Draf Diajukan: ${newNaskah.nomorRegistrasi}`,
+      deskripsi: `${newNaskah.namaKonseptor} (${newNaskah.unitKerja}) mengajukan draf "${newNaskah.perihal}" kepada ${newNaskah.verifikatorDitunjuk}.`,
+      pelaku: newNaskah.namaKonseptor,
+      rolePelaku: 'KONSEPTOR',
+      naskahId: newNaskah.id,
+      nomorRegistrasi: newNaskah.nomorRegistrasi,
+      tipeAktivitas: 'PENGAJUAN_DRAF',
+      targetRoles: ['ADMIN', newNaskah.roleVerifikatorDitunjuk],
+      targetKonseptor: newNaskah.namaKonseptor,
+    });
+
     if (currentUser?.allowedTabs.includes('verifikasi')) {
       handleNavigateTab('verifikasi');
     } else {
@@ -414,6 +653,33 @@ export default function App() {
     } else {
       showToast(`✕ Pengajuan draf ${changedItem?.nomorRegistrasi || ''} ditolak.`);
     }
+
+    // Catat notifikasi aktivitas real-time
+    let notifTipe: TipeAktivitas = 'VERIFIKASI_SETUJU';
+    let notifJudul = `Draf Disetujui: ${changedItem?.nomorRegistrasi || ''}`;
+    let notifDesc = `Draf "${changedItem?.perihal || ''}" disetujui oleh ${currentUser.nama}. Siap diterbitkan nomor surat.`;
+
+    if (keputusan === 'PERLU_PERBAIKAN') {
+      notifTipe = 'VERIFIKASI_PERBAIKAN';
+      notifJudul = `Perlu Perbaikan: ${changedItem?.nomorRegistrasi || ''}`;
+      notifDesc = `Draf "${changedItem?.perihal || ''}" dikembalikan oleh ${currentUser.nama}. Catatan: ${catatan || 'Perlu perbaikan tata naskah.'}`;
+    } else if (keputusan === 'DITOLAK') {
+      notifTipe = 'VERIFIKASI_TOLAK';
+      notifJudul = `Draf Ditolak: ${changedItem?.nomorRegistrasi || ''}`;
+      notifDesc = `Draf "${changedItem?.perihal || ''}" ditolak oleh ${currentUser.nama}. Alasan: ${catatan || 'Tidak memenuhi ketentuan dinas.'}`;
+    }
+
+    addActivityNotification({
+      judul: notifJudul,
+      deskripsi: notifDesc,
+      pelaku: currentUser.nama,
+      rolePelaku: currentUser.role,
+      naskahId: changedItem?.id,
+      nomorRegistrasi: changedItem?.nomorRegistrasi,
+      tipeAktivitas: notifTipe,
+      targetRoles: ['ADMIN', changedItem?.roleVerifikatorDitunjuk || ''],
+      targetKonseptor: changedItem?.namaKonseptor,
+    });
   };
 
   const handleTerbitkanNomorSurat = (naskah: NaskahDinas, customKodeSurat?: 'B' | 'K' | 'R') => {
@@ -481,6 +747,20 @@ export default function App() {
           `✔ Nomor surat #${result.data.nomorUrut} (${result.data.nomorSuratLengkap}) berhasil diterbitkan dan terhubung dengan ${naskah.nomorRegistrasi}!`
         );
 
+        // Catat notifikasi aktivitas real-time
+        addActivityNotification({
+          judul: `Nomor Surat Terbit: ${result.data.nomorSuratLengkap}`,
+          deskripsi: `Nomor surat #${result.data.nomorUrut} (${result.data.nomorSuratLengkap}) resmi diterbitkan untuk ${naskah.namaKonseptor}. Silakan proses TTD & berkas final.`,
+          pelaku: currentUser.nama,
+          rolePelaku: currentUser.role,
+          naskahId: naskah.id,
+          nomorRegistrasi: naskah.nomorRegistrasi,
+          nomorSurat: result.data.nomorSuratLengkap,
+          tipeAktivitas: 'NOMOR_TERBIT',
+          targetRoles: ['ADMIN', 'ARSIPARIS', naskah.roleVerifikatorDitunjuk],
+          targetKonseptor: naskah.namaKonseptor,
+        });
+
         // Background sync to Google Spreadsheet
         if (config.appsScriptUrl) {
           sendAppsScriptAction('submitSurat', result.data, config).catch(() => {});
@@ -513,6 +793,19 @@ export default function App() {
       setNaskahList(updatedList);
       saveStoredNaskahList(updatedList);
       showToast(`✔ Pengajuan ${updatedNaskah?.nomorRegistrasi || ''} berhasil dibuka kembali oleh Admin.`);
+
+      addActivityNotification({
+        judul: `Pengajuan Dibuka Kembali: ${updatedNaskah?.nomorRegistrasi || ''}`,
+        deskripsi: `Pengajuan dibuka kembali oleh Administrator (${currentUser.nama}). Alasan: ${alasan}`,
+        pelaku: currentUser.nama,
+        rolePelaku: 'ADMIN',
+        naskahId,
+        nomorRegistrasi: updatedNaskah?.nomorRegistrasi,
+        tipeAktivitas: 'BUKA_KEMBALI',
+        targetRoles: ['ADMIN', updatedNaskah?.roleVerifikatorDitunjuk || ''],
+        targetKonseptor: updatedNaskah?.namaKonseptor,
+      });
+
       if (updatedNaskah && config.appsScriptUrl) {
         sendAppsScriptAction('saveNaskah', updatedNaskah, config).catch(() => {});
       }
@@ -538,6 +831,18 @@ export default function App() {
 
     const changedItem = updatedList.find((n) => n.id === naskahId);
     if (changedItem) {
+      addActivityNotification({
+        judul: `Draf Direvisi: ${changedItem.nomorRegistrasi}`,
+        deskripsi: `${diunggahOleh} mengunggah berkas revisi draf. Catatan: ${catatanPerbaikan || 'Sesuai arahan verifikator.'}`,
+        pelaku: diunggahOleh,
+        rolePelaku: 'KONSEPTOR',
+        naskahId,
+        nomorRegistrasi: changedItem.nomorRegistrasi,
+        tipeAktivitas: 'PENGAJUAN_DRAF',
+        targetRoles: ['ADMIN', changedItem.roleVerifikatorDitunjuk],
+        targetKonseptor: changedItem.namaKonseptor,
+      });
+
       // Re-upload/update draft in Google Drive without duplicate files
       uploadDraftToDriveSync(changedItem, config, file)
         .then((driveRes) => {
@@ -584,6 +889,19 @@ export default function App() {
     }
     showToast(`✔ Naskah dinas ${dokumenFinal.nomorSuratResmi} berhasil diarsipkan ke Arsip Digital BPS!`);
 
+    addActivityNotification({
+      judul: `Arsip Final Tersimpan: ${dokumenFinal.nomorSuratResmi}`,
+      deskripsi: `Dokumen sah "${targetNaskah?.perihal || ''}" diarsipkan ke basis data & Google Drive.`,
+      pelaku: currentUser?.nama || 'Petugas BPS',
+      rolePelaku: currentUser?.role || 'KONSEPTOR',
+      naskahId,
+      nomorRegistrasi: targetNaskah?.nomorRegistrasi,
+      nomorSurat: dokumenFinal.nomorSuratResmi,
+      tipeAktivitas: 'UNGGAH_FINAL',
+      targetRoles: ['ADMIN', 'ARSIPARIS', targetNaskah?.roleVerifikatorDitunjuk || ''],
+      targetKonseptor: targetNaskah?.namaKonseptor,
+    });
+
     // Upload & organize final document into Google Drive (Tahun > Tim Kerja > Bulan > Arsip)
     if (targetNaskah) {
       archiveFinalToDriveSync(targetNaskah, dokumenFinal, config)
@@ -623,13 +941,88 @@ export default function App() {
     showToast(`✔ Naskah ${updated.nomorRegistrasi} berhasil diperbarui.`);
   };
 
-  const handleDeleteNaskah = (naskah: NaskahDinas) => {
+  const handleDeleteNaskah = async (naskah: NaskahDinas) => {
+    if (!currentUser) return;
+
+    // Validasi Hak Akses: Admin atau Konseptor pembuat draf (apabila belum sah/final)
+    const isOwner = currentUser.nama.toLowerCase() === naskah.namaKonseptor.toLowerCase();
+    const canDelete =
+      currentUser.role === 'ADMIN' ||
+      (isOwner && (naskah.status === 'DRAF_DIAJUKAN' || naskah.status === 'PERLU_PERBAIKAN'));
+
+    if (!canDelete) {
+      showToast('✕ Anda tidak memiliki kewenangan untuk menghapus naskah dinas ini.');
+      return;
+    }
+
     const nextList = deleteNaskahDinas(naskah.id, naskahList);
     setNaskahList(nextList);
+    saveStoredNaskahList(nextList);
+
+    // Kumpulkan seluruh file ID yang tersimpan di Google Drive (Folder Draft dan Arsip)
+    const driveFileIds: (string | undefined)[] = [
+      naskah.driveDraftFileId,
+      ...(naskah.riwayatVersi || []).map((v) => v.driveFileId),
+      naskah.dokumenFinal?.driveFileId,
+    ].filter(Boolean);
+
+    // Hapus di Google Spreadsheet Sheet NaskahDinas
+    let sheetSuccess = false;
     if (config.appsScriptUrl) {
-      syncDeleteNaskah(naskah.nomorRegistrasi, naskah.id, config).catch(() => {});
+      try {
+        const res = await syncDeleteNaskah(naskah.nomorRegistrasi, naskah.id, config);
+        sheetSuccess = res.success;
+      } catch {
+        sheetSuccess = false;
+      }
+    } else {
+      sheetSuccess = true;
     }
-    showToast(`✔ Draf naskah ${naskah.nomorRegistrasi} berhasil dihapus.`);
+
+    // Hapus seluruh file terkait di Google Drive (Folder Draft & Arsip)
+    const driveRes = await deleteDriveFilesSync(
+      driveFileIds,
+      {
+        nomorIdentitas: naskah.nomorRegistrasi,
+        tipe: 'DRAF',
+        perihal: naskah.perihal,
+      },
+      config,
+      {
+        nama: currentUser.nama,
+        role: currentUser.role,
+      }
+    );
+
+    // Catat ke audit log penghapusan sistem
+    setRiwayatPenghapusanAudit((prev) => {
+      const next = [driveRes.auditRecord, ...prev].slice(0, 100);
+      try {
+        localStorage.setItem(STORAGE_KEY_AUDIT_PENGHAPUSAN, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // Catat notifikasi aktivitas penghapusan
+    addActivityNotification({
+      judul: `Naskah Dihapus: ${naskah.nomorRegistrasi}`,
+      deskripsi: `Draf "${naskah.perihal}" dihapus oleh ${currentUser.nama}. ${driveRes.deletedCount} file Google Drive dibersihkan.`,
+      pelaku: currentUser.nama,
+      rolePelaku: currentUser.role,
+      nomorRegistrasi: naskah.nomorRegistrasi,
+      tipeAktivitas: 'HAPUS_NASKAH',
+      targetRoles: ['ADMIN', naskah.roleVerifikatorDitunjuk],
+    });
+
+    if (!driveRes.success && driveFileIds.length > 0) {
+      showToast(
+        `⚠ Naskah dihapus dari spreadsheet, namun pembersihan file Google Drive terkendala: ${driveRes.error || 'Periksa izin folder Drive'}`
+      );
+    } else {
+      showToast(
+        `✔ Draf naskah ${naskah.nomorRegistrasi} & file Google Drive (${driveRes.deletedCount} berkas) berhasil dihapus.`
+      );
+    }
   };
 
   const handleUpdateArsip = (naskahId: string, updatedDoc: DokumenFinal) => {
@@ -640,12 +1033,76 @@ export default function App() {
     }
   };
 
-  const handleDeleteArsip = (naskah: NaskahDinas) => {
+  const handleDeleteArsip = async (naskah: NaskahDinas) => {
+    if (!currentUser) return;
+
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ARSIPARIS') {
+      showToast('✕ Hanya Administrator dan Arsiparis yang berwenang menghapus dokumen arsip.');
+      return;
+    }
+
+    const nomorResmi = naskah.dokumenFinal?.nomorSuratResmi || naskah.nomorRegistrasi;
     const nextList = deleteArsipItem(naskah.id, naskahList);
     setNaskahList(nextList);
+    saveStoredNaskahList(nextList);
+
+    // Kumpulkan seluruh file ID yang tersimpan di Google Drive (Folder Arsip dan Draft)
+    const driveFileIds: (string | undefined)[] = [
+      naskah.dokumenFinal?.driveFileId,
+      naskah.driveDraftFileId,
+      ...(naskah.riwayatVersi || []).map((v) => v.driveFileId),
+    ].filter(Boolean);
+
+    // Hapus di Google Spreadsheet Sheet ArsipDigital
     if (config.appsScriptUrl) {
-      const nomorResmi = naskah.dokumenFinal?.nomorSuratResmi || naskah.nomorRegistrasi;
-      syncDeleteArsip(nomorResmi, config).catch(() => {});
+      try {
+        await syncDeleteArsip(nomorResmi, config);
+      } catch {}
+    }
+
+    // Hapus file terkait di Google Drive
+    const driveRes = await deleteDriveFilesSync(
+      driveFileIds,
+      {
+        nomorIdentitas: nomorResmi,
+        tipe: 'ARSIP',
+        perihal: naskah.dokumenFinal?.perihal || naskah.perihal,
+      },
+      config,
+      {
+        nama: currentUser.nama,
+        role: currentUser.role,
+      }
+    );
+
+    // Catat ke audit log
+    setRiwayatPenghapusanAudit((prev) => {
+      const next = [driveRes.auditRecord, ...prev].slice(0, 100);
+      try {
+        localStorage.setItem(STORAGE_KEY_AUDIT_PENGHAPUSAN, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // Catat notifikasi aktivitas
+    addActivityNotification({
+      judul: `Arsip Dihapus: ${nomorResmi}`,
+      deskripsi: `Arsip "${naskah.dokumenFinal?.perihal || naskah.perihal}" dihapus oleh ${currentUser.nama}. ${driveRes.deletedCount} file Google Drive dibersihkan.`,
+      pelaku: currentUser.nama,
+      rolePelaku: currentUser.role,
+      nomorSurat: nomorResmi,
+      tipeAktivitas: 'HAPUS_ARSIP',
+      targetRoles: ['ADMIN', 'ARSIPARIS'],
+    });
+
+    if (!driveRes.success && driveFileIds.length > 0) {
+      showToast(
+        `⚠ Arsip dihapus dari spreadsheet, namun pembersihan file Google Drive terkendala: ${driveRes.error || 'Periksa izin folder Drive'}`
+      );
+    } else {
+      showToast(
+        `✔ Arsip surat ${nomorResmi} & dokumen Google Drive (${driveRes.deletedCount} berkas) berhasil dihapus.`
+      );
     }
   };
 
@@ -814,9 +1271,41 @@ export default function App() {
     showToast(`✔ Memilih slot nomor kosong #${item.nomorUrut} (${item.nomorSuratLengkap}) untuk draf pengajuan`);
   };
 
-  const handleSaveConfig = (newConfig: AppConfig) => {
-    setConfig(newConfig);
-    saveStoredConfig(newConfig);
+  const handleSaveConfig = async (newConfig: AppConfig) => {
+    const updated: AppConfig = {
+      ...newConfig,
+      lastConfigUpdate: new Date().toISOString(),
+      updatedBy: currentUser?.nama || 'Admin',
+    };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    showToast('✔ Pengaturan aplikasi berhasil disimpan secara lokal.');
+
+    // Simpan ke Google Spreadsheet Sheet Pengaturan
+    if (updated.appsScriptUrl) {
+      try {
+        const res = await syncSaveSpreadsheetConfig(
+          updated,
+          currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
+        );
+        if (res.success) {
+          showToast('✔ Pengaturan berhasil disimpan ke Sheet Pengaturan Google Spreadsheet!');
+        } else {
+          showToast(`⚠ Pengaturan lokal tersimpan, namun sync ke Sheet gagal: ${res.error || 'Respon ditolak'}`);
+        }
+      } catch (err: any) {
+        showToast(`⚠ Disimpan lokal (Spreadsheet offline: ${err.message || 'Gagal tersambung'})`);
+      }
+    }
+
+    addActivityNotification({
+      judul: 'Konfigurasi Sistem Diperbarui',
+      deskripsi: `Pengaturan database & sistem diperbarui oleh ${currentUser?.nama || 'Admin'}.`,
+      pelaku: currentUser?.nama || 'Admin',
+      rolePelaku: currentUser?.role || 'ADMIN',
+      tipeAktivitas: 'PENGATURAN_UPDATE',
+      targetRoles: ['ADMIN'],
+    });
   };
 
   const handleRestoreData = (newList: SuratKeluar[]) => {
@@ -877,6 +1366,33 @@ export default function App() {
         totalArsipCount={totalArsipCount}
         onSyncDatabase={handleManualSync}
         isSyncing={isSyncing}
+        notifications={userFilteredNotifications}
+        onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+        onMarkNotificationRead={handleMarkNotificationRead}
+        onSelectNotification={(notif) => {
+          if (notif.tipeAktivitas === 'UNGGAH_FINAL' || notif.tipeAktivitas === 'HAPUS_ARSIP') {
+            if (currentUser.allowedTabs.includes('arsip')) {
+              handleNavigateTab('arsip');
+            }
+          } else if (
+            notif.tipeAktivitas === 'PENGAJUAN_DRAF' ||
+            notif.tipeAktivitas === 'VERIFIKASI_SETUJU' ||
+            notif.tipeAktivitas === 'VERIFIKASI_PERBAIKAN' ||
+            notif.tipeAktivitas === 'VERIFIKASI_TOLAK' ||
+            notif.tipeAktivitas === 'HAPUS_NASKAH'
+          ) {
+            if (currentUser.allowedTabs.includes('verifikasi')) {
+              handleNavigateTab('verifikasi');
+            } else if (currentUser.allowedTabs.includes('pengajuan')) {
+              handleNavigateTab('pengajuan');
+            }
+          } else if (notif.tipeAktivitas === 'NOMOR_TERBIT') {
+            if (currentUser.allowedTabs.includes('penomoran')) {
+              handleNavigateTab('penomoran', 'register');
+            }
+          }
+        }}
+        syncIntervalSeconds={config.syncIntervalSeconds || 10}
       />
 
       {/* Main Content Area with Permission Guards */}
@@ -932,6 +1448,7 @@ export default function App() {
             suratList={suratList}
             naskahList={naskahList}
             preselectedKosong={preselectedKosong}
+            config={config}
             onClearPreselectedKosong={() => setPreselectedKosong(null)}
             onSubmitDraf={handlePengajuanDraf}
             onNavigateToPedoman={() => handleNavigateTab('pedoman')}
@@ -1090,6 +1607,7 @@ export default function App() {
                     onClearPreselectedKosong={() => setPreselectedKosong(null)}
                     nextNomorBaru={nextNomorBaru}
                     currentUser={currentUser}
+                    config={config}
                   />
                 </div>
                 <div className="lg:col-span-4">
@@ -1211,6 +1729,8 @@ export default function App() {
           onRestoreData={handleRestoreData}
           onResetData={handleResetData}
           onToast={showToast}
+          currentUser={currentUser}
+          riwayatPenghapusanAudit={riwayatPenghapusanAudit}
         />
       )}
 

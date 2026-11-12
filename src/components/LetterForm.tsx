@@ -13,7 +13,7 @@ import {
   Search,
   Building,
 } from 'lucide-react';
-import { KodeSuratType, SubmitSuratPayload, SuratKeluar, UserProfile } from '../types';
+import { AppConfig, KodeSuratType, SubmitSuratPayload, SuratKeluar, UserProfile } from '../types';
 import { BULAN_LIST, DAFTAR_KLASIFIKASI_BPS, TIM_KERJA_OPTIONS, DAFTAR_TIM_KERJA } from '../data/bpsClassifications';
 import { formatTanggalIndo } from '../utils/storage';
 
@@ -24,6 +24,7 @@ interface LetterFormProps {
   onClearPreselectedKosong?: () => void;
   nextNomorBaru: number;
   currentUser?: UserProfile | null;
+  config?: AppConfig;
 }
 
 export const LetterForm: React.FC<LetterFormProps> = ({
@@ -33,6 +34,7 @@ export const LetterForm: React.FC<LetterFormProps> = ({
   onClearPreselectedKosong,
   nextNomorBaru,
   currentUser,
+  config,
 }) => {
   // Mode: 'baru' | 'kosong'
   const [mode, setMode] = useState<'baru' | 'kosong'>('baru');
@@ -713,7 +715,10 @@ export const LetterForm: React.FC<LetterFormProps> = ({
                       }`}
                     >
                       <option value="">— Pilih Tim Kerja —</option>
-                      {DAFTAR_TIM_KERJA.map((t) => (
+                      {(config?.daftarTimKerja && config.daftarTimKerja.length > 0
+                        ? config.daftarTimKerja
+                        : DAFTAR_TIM_KERJA
+                      ).map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>

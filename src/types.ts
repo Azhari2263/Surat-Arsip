@@ -31,6 +31,77 @@ export interface AppConfig {
   whatsappAdmin: string;
   enableMondayRule: boolean;
   googleDriveFolderId?: string;
+  daftarTimKerja?: string[];
+  pemetaanVerifikator?: Record<string, { nama: string; role: UserRole; jabatan?: string }>;
+  syncIntervalSeconds?: number;
+  lastConfigUpdate?: string;
+  updatedBy?: string;
+}
+
+export interface PengaturanItemSpreadsheet {
+  kunci: string;
+  nilai: string;
+  kategori: string;
+  deskripsi: string;
+  waktuUpdate: string;
+  diupdateOleh: string;
+}
+
+export type TipeAktivitas =
+  | 'PENGAJUAN_DRAF'
+  | 'PENGAJUAN_BARU'
+  | 'VERIFIKASI_SETUJU'
+  | 'VERIFIKASI_PERBAIKAN'
+  | 'REVISI_DIMINTA'
+  | 'VERIFIKASI_TOLAK'
+  | 'PENOLAKAN'
+  | 'NOMOR_TERBIT'
+  | 'UNGGAH_FINAL'
+  | 'ARSIP_FINAL'
+  | 'BUKA_KEMBALI'
+  | 'HAPUS_NASKAH'
+  | 'HAPUS_ARSIP'
+  | 'HAPUS_DATA'
+  | 'PENGATURAN_UPDATE';
+
+export interface AktivitasNotifikasi {
+  id: string;
+  tipe?: TipeAktivitas;
+  tipeAktivitas: TipeAktivitas;
+  judul: string;
+  pesan?: string;
+  deskripsi: string;
+  naskahId?: string;
+  nomorRegistrasi?: string;
+  nomorSurat?: string;
+  unitKerja?: string;
+  waktu: string;
+  aktor?: string;
+  pelaku: string;
+  roleAktor?: string;
+  rolePelaku: string;
+  targetRoles?: string[];
+  targetKonseptor?: string;
+  dibaca: boolean;
+}
+
+export interface RiwayatPenghapusanAudit {
+  id: string;
+  waktu: string;
+  pengguna?: string;
+  dihapusOleh?: string;
+  rolePengguna?: string;
+  role?: string;
+  tipeData?: 'NASKAH_DRAF' | 'ARSIP_DIGITAL' | 'SURAT_REGISTER';
+  tipe?: 'DRAF' | 'ARSIP';
+  nomorIdentifikasi?: string;
+  nomorIdentitas?: string;
+  perihal?: string;
+  unitKerja?: string;
+  fileIdsDrive?: string[];
+  statusDrive: 'BERHASIL' | 'GAGAL' | 'SEBAGIAN' | 'TIDAK_ADA_FILE';
+  jumlahFileDihapus?: number;
+  keterangan: string;
 }
 
 export interface SubmitSuratPayload {
@@ -97,6 +168,7 @@ export type StatusNaskah =
   | 'DRAF_DIAJUKAN'
   | 'SEDANG_DIPERIKSA'
   | 'TERVERIFIKASI'
+  | 'DISETUJUI'
   | 'FINAL_DIARSIPKAN';
 
 export type TipeTandaTangan = 'TTE' | 'KONVENSIONAL';
@@ -178,10 +250,15 @@ export interface VersiDokumen {
   dataUrl?: string;
   diunggahOleh: string;
   catatanPerbaikan?: string;
+  driveFileId?: string;
+  driveUrl?: string;
 }
 
 export interface DokumenFinal {
   nomorSuratResmi: string;
+  perihal?: string;
+  jenisNaskah?: string;
+  unitKerja?: string;
   tanggalPenetapan: string;
   tipeTandaTangan: TipeTandaTangan;
   pejabatPenandatangan: string;

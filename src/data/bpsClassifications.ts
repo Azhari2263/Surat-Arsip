@@ -58,6 +58,20 @@ export const BULAN_LIST = [
 
 export const DEFAULT_DRIVE_FOLDER_ID = '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S';
 
+export const DEFAULT_PEMETAAN_VERIFIKATOR: Record<string, { nama: string; role: any; deskripsi: string }> = {
+  'Tim SDM': { nama: 'M. Yun Imran, S.E.', role: 'VERIFIKATOR_YUN', deskripsi: 'Verifikator Tim SDM dan Tim Keuangan' },
+  'Tim Keuangan': { nama: 'M. Yun Imran, S.E.', role: 'VERIFIKATOR_YUN', deskripsi: 'Verifikator Tim SDM dan Tim Keuangan' },
+  'Tim Perencanaan': { nama: 'Amanda Putri, A.Md.', role: 'VERIFIKATOR_AMANDA', deskripsi: 'Verifikator Tim Perencanaan dan Tim Neraca' },
+  'Tim Neraca': { nama: 'Amanda Putri, A.Md.', role: 'VERIFIKATOR_AMANDA', deskripsi: 'Verifikator Tim Perencanaan dan Tim Neraca' },
+  'Tim Distribusi': { nama: 'Rania Naila Husna, A.Md.A.B', role: 'VERIFIKATOR_RANIA', deskripsi: 'Verifikator Tim Distribusi dan Tim Sosial' },
+  'Tim Sosial': { nama: 'Rania Naila Husna, A.Md.A.B', role: 'VERIFIKATOR_RANIA', deskripsi: 'Verifikator Tim Distribusi dan Tim Sosial' },
+  'Tim Produksi': { nama: 'Alfiana Ayuni, A.Md.', role: 'VERIFIKATOR_VIVI', deskripsi: 'Verifikator Tim Produksi' },
+  'Tim IPDS': { nama: 'Agustinus Supriadi, S.M.', role: 'VERIFIKATOR_AGUS', deskripsi: 'Verifikator Tim IPDS dan Tim Umum & Humas' },
+  'Tim Umum & Humas': { nama: 'Agustinus Supriadi, S.M.', role: 'VERIFIKATOR_AGUS', deskripsi: 'Verifikator Tim IPDS dan Tim Umum & Humas' },
+  'Tata Usaha / Kearsipan': { nama: 'Arsiparis Ahli BPS Kalbar', role: 'ARSIPARIS', deskripsi: 'Verifikasi Aspek Kearsipan dan Tata Naskah Dinas Formal' },
+  'Pimpinan & TU Kepala': { nama: 'Arsiparis Ahli BPS Kalbar', role: 'ARSIPARIS', deskripsi: 'Verifikasi Tata Usaha Kepala' },
+};
+
 export const DEFAULT_CONFIG = {
   spreadsheetId: '1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg',
   appsScriptUrl: 'https://script.google.com/macros/s/AKfycbwqkoaf5CgOLS8bnGJHwCacg7nR92XyA68pcqbvOPouMghd9HA7j62Hezojh-wPS0_h/exec',
@@ -67,4 +81,9 @@ export const DEFAULT_CONFIG = {
   whatsappAdmin: '6281253817688',
   enableMondayRule: true,
   googleDriveFolderId: DEFAULT_DRIVE_FOLDER_ID,
+  daftarTimKerja: [...DAFTAR_TIM_KERJA],
+  pemetaanVerifikator: DEFAULT_PEMETAAN_VERIFIKATOR,
+  syncIntervalSeconds: 10,
+  lastConfigUpdate: new Date().toISOString(),
+  updatedBy: 'Sistem Inisial',
 };

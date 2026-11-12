@@ -31,6 +31,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import {
+  AppConfig,
   JenisNaskahDinas,
   KodeSuratType,
   NaskahDinas,
@@ -49,6 +50,7 @@ interface PengajuanDrafViewProps {
   suratList: SuratKeluar[];
   naskahList?: NaskahDinas[];
   preselectedKosong?: SuratKeluar | null;
+  config?: AppConfig;
   onClearPreselectedKosong?: () => void;
   onSubmitDraf: (
     data: Omit<
@@ -93,6 +95,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
   suratList,
   naskahList = [],
   preselectedKosong,
+  config,
   onClearPreselectedKosong,
   onSubmitDraf,
   onNavigateToPedoman,
@@ -140,8 +143,11 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
     return adminSelectedUnitKerja;
   }, [currentUser.role, currentUser.unitKerja, adminSelectedUnitKerja]);
 
-  // Penentuan Verifikator Otomatis berdasarkan Unit Kerja Akun Konseptor
-  const verifikatorInfo = useMemo(() => tentukanVerifikator(unitKerja), [unitKerja]);
+  // Penentuan Verifikator Otomatis berdasarkan Unit Kerja Akun Konseptor & Custom Mapping dari Pengaturan Spreadsheet
+  const verifikatorInfo = useMemo(
+    () => tentukanVerifikator(unitKerja, config?.pemetaanVerifikator),
+    [unitKerja, config?.pemetaanVerifikator]
+  );
 
   // List slot nomor kosong yang tersedia di register
   const emptySuratList = useMemo(
@@ -1148,7 +1154,10 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                         onChange={(e) => setAdminSelectedUnitKerja(e.target.value)}
                         className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white text-slate-800 font-semibold text-xs sm:text-sm focus:border-[#0f4c82] outline-none"
                       >
-                        {DAFTAR_TIM_KERJA.map((tim) => (
+                        {(config?.daftarTimKerja && config.daftarTimKerja.length > 0
+                          ? config.daftarTimKerja
+                          : DAFTAR_TIM_KERJA
+                        ).map((tim) => (
                           <option key={tim} value={tim}>
                             {tim}
                           </option>
