@@ -109,6 +109,25 @@ function doPost(e) {
     const action = payload.action || "";
     const targetSsId = payload.spreadsheetId || SPREADSHEET_ID;
 
+    // 0. Sinkronisasi Data Realtime & Baca Data (Mendukung fallback POST jika GET di Vercel terkena CORS/redirect)
+    if (action === "getAllData" || action === "getData") {
+      const res = getAllData(targetSsId);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getConfig") {
+      const res = getConfigData(targetSsId);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getLogs" || action === "getActivityLogs") {
+      const res = getActivityLogs(targetSsId);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // 1. Inisialisasi Database
     if (action === "setupDatabase") {
       const res = setupDatabase(targetSsId);
@@ -1491,6 +1510,56 @@ function handleArchiveFinalDrive(data) {
 `;
 
 /**
+ * Menormalkan URL Google Apps Script dari berbagai format input pengguna
+ * Menghilangkan whitespace, mengarahkan ke https, mengubah /edit ke /exec,
+ * serta memastikan akhiran /exec valid.
+ */
+export function normalizeAppsScriptUrl(rawUrl?: string): string {
+  if (!rawUrl) return '';
+  let clean = rawUrl.trim();
+  // Tangani spasi tak sengaja di dalam atau akhir
+  clean = clean.replace(/\s+/g, '');
+
+  // Pastikan protokol https://
+  if (clean.startsWith('http://')) {
+    clean = 'https://' + clean.slice(7);
+  } else if (!clean.startsWith('https://')) {
+    clean = 'https://' + clean;
+  }
+
+  // Jika pengguna menyalin URL editor Google Apps Script (/edit)
+  if (clean.includes('/edit')) {
+    clean = clean.replace(/\/edit.*$/, '/exec');
+  }
+
+  // Hilangkan trailing slashes
+  clean = clean.replace(/\/+$/, '');
+
+  // Jika URL adalah format script.google.com/macros/s/{id} tanpa /exec
+  if (clean.includes('script.google.com/macros/s/') && !clean.endsWith('/exec')) {
+    clean = clean + '/exec';
+  }
+
+  return clean;
+}
+
+/**
+ * Format pesan diagnostik ramah jika terjadi Failed to fetch (CORS/Deployment issue di Vercel)
+ */
+function formatFetchErrorMessage(err: any, url: string): string {
+  const msg = err?.message || String(err || '');
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Load failed')) {
+    return (
+      'Failed to fetch: Akses Google Apps Script diblokir oleh browser (CORS / Web App Permission). ' +
+      'Solusi deployment Vercel: Di Google Apps Script, klik Deploy > Manage deployments > Edit > ' +
+      'pastikan "Execute as" disetel ke "Me (email Anda)" dan "Who has access" disetel ke "Anyone (Siapa saja)". ' +
+      'Pastikan juga URL berakhiran /exec.'
+    );
+  }
+  return msg || 'Gagal menghubungi Google Apps Script.';
+}
+
+/**
  * Mengirim aksi ke Apps Script Web App
  */
 export async function sendAppsScriptAction(
@@ -1499,10 +1568,11 @@ export async function sendAppsScriptAction(
   config: AppConfig
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const url = config.appsScriptUrl;
-    if (!url) {
+    const rawUrl = config.appsScriptUrl;
+    if (!rawUrl) {
       return { success: false, error: 'URL Google Apps Script belum dikonfigurasi.' };
     }
+    const url = normalizeAppsScriptUrl(rawUrl);
 
     const payload = JSON.stringify({
       action,
@@ -1531,7 +1601,7 @@ export async function sendAppsScriptAction(
       return { success: true, data: text };
     }
   } catch (err: any) {
-    return { success: false, error: err.message || String(err) };
+    return { success: false, error: formatFetchErrorMessage(err, config.appsScriptUrl || '') };
   }
 }
 
@@ -1556,6 +1626,9 @@ export async function setupDatabaseSpreadsheet(
 
 /**
  * Mengambil data realtime dari Spreadsheet
+ * Dilengkapi strategi ganda:
+ * 1. Coba request GET langsung dengan URL ternormalisasi
+ * 2. Jika gagal karena 'Failed to fetch' (CORS redirect di Vercel), fallback otomatis ke POST (text/plain)
  */
 export async function fetchSpreadsheetData(
   config: AppConfig
@@ -1569,116 +1642,198 @@ export async function fetchSpreadsheetData(
   activityLogs?: any[];
   error?: string;
 }> {
-  try {
-    const url = `${config.appsScriptUrl}?action=getAllData&t=${Date.now()}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP Error: ${response.status}`);
-    }
-    const json = await response.json();
-    if (json.success) {
-      let remoteConfig: Partial<AppConfig> | undefined;
-      if (json.configData && typeof json.configData === 'object') {
-        const c = json.configData;
-        remoteConfig = {
-          nomorBaruMulaiDari: c.nomorBaruMulaiDari ? Number(c.nomorBaruMulaiDari) : undefined,
-          kodeUnit: c.kodeUnit || undefined,
-          whatsappAdmin: c.whatsappAdmin || undefined,
-          enableMondayRule: c.enableMondayRule !== undefined ? String(c.enableMondayRule) !== 'false' : undefined,
-          googleDriveFolderId: c.googleDriveFolderId || undefined,
-          syncIntervalSeconds: c.syncIntervalSeconds ? Number(c.syncIntervalSeconds) : undefined,
-          lastConfigUpdate: c.lastConfigUpdate || new Date().toISOString(),
-          updatedBy: c.updatedBy || 'Spreadsheet',
-        };
+  const rawUrl = config.appsScriptUrl;
+  if (!rawUrl) {
+    return { success: false, error: 'URL Google Apps Script belum dikonfigurasi.' };
+  }
+  const cleanUrl = normalizeAppsScriptUrl(rawUrl);
+  const ssId = config.spreadsheetId;
 
-        if (c.daftarTimKerja) {
-          try {
-            const parsed = JSON.parse(c.daftarTimKerja);
-            if (Array.isArray(parsed)) remoteConfig.daftarTimKerja = parsed;
-          } catch {}
-        }
-        if (c.pemetaanVerifikator) {
-          try {
-            const parsed = JSON.parse(c.pemetaanVerifikator);
-            if (typeof parsed === 'object') remoteConfig.pemetaanVerifikator = parsed;
-          } catch {}
-        }
-      }
-
-      return {
-        success: true,
-        suratList: Array.isArray(json.suratList)
-          ? json.suratList.map((s: SuratKeluar) => ({
-              ...s,
-              tanggalSurat: s.tanggalSurat ? formatTanggalIndo(s.tanggalSurat) : s.tanggalSurat,
-              waktuInput: s.waktuInput ? formatTanggalWaktuIndo(s.waktuInput) : s.waktuInput,
-            }))
-          : [],
-        naskahList: Array.isArray(json.naskahList)
-          ? json.naskahList.map((n: NaskahDinas) => ({
-              ...n,
-              tanggalPengajuan: n.tanggalPengajuan ? formatTanggalIndo(n.tanggalPengajuan) : n.tanggalPengajuan,
-              waktuUpdate: n.waktuUpdate ? formatTanggalWaktuIndo(n.waktuUpdate) : n.waktuUpdate,
-            }))
-          : [],
-        userList: Array.isArray(json.userList) ? json.userList : [],
-        remoteConfig,
-        configItems: Array.isArray(json.configItems) ? json.configItems : [],
-        activityLogs: Array.isArray(json.activityLogs) ? json.activityLogs : [],
+  const parseDataResponse = (json: any) => {
+    let remoteConfig: Partial<AppConfig> | undefined;
+    if (json.configData && typeof json.configData === 'object') {
+      const c = json.configData;
+      remoteConfig = {
+        nomorBaruMulaiDari: c.nomorBaruMulaiDari ? Number(c.nomorBaruMulaiDari) : undefined,
+        kodeUnit: c.kodeUnit || undefined,
+        whatsappAdmin: c.whatsappAdmin || undefined,
+        enableMondayRule: c.enableMondayRule !== undefined ? String(c.enableMondayRule) !== 'false' : undefined,
+        googleDriveFolderId: c.googleDriveFolderId || undefined,
+        syncIntervalSeconds: c.syncIntervalSeconds ? Number(c.syncIntervalSeconds) : undefined,
+        lastConfigUpdate: c.lastConfigUpdate || new Date().toISOString(),
+        updatedBy: c.updatedBy || 'Spreadsheet',
       };
+
+      if (c.daftarTimKerja) {
+        try {
+          const parsed = JSON.parse(c.daftarTimKerja);
+          if (Array.isArray(parsed)) remoteConfig.daftarTimKerja = parsed;
+        } catch {}
+      }
+      if (c.pemetaanVerifikator) {
+        try {
+          const parsed = JSON.parse(c.pemetaanVerifikator);
+          if (typeof parsed === 'object') remoteConfig.pemetaanVerifikator = parsed;
+        } catch {}
+      }
     }
-    return { success: false, error: json.error || 'Respon spreadsheet tidak valid.' };
+
+    return {
+      success: true,
+      suratList: Array.isArray(json.suratList)
+        ? json.suratList.map((s: SuratKeluar) => ({
+            ...s,
+            tanggalSurat: s.tanggalSurat ? formatTanggalIndo(s.tanggalSurat) : s.tanggalSurat,
+            waktuInput: s.waktuInput ? formatTanggalWaktuIndo(s.waktuInput) : s.waktuInput,
+          }))
+        : [],
+      naskahList: Array.isArray(json.naskahList)
+        ? json.naskahList.map((n: NaskahDinas) => ({
+            ...n,
+            tanggalPengajuan: n.tanggalPengajuan ? formatTanggalIndo(n.tanggalPengajuan) : n.tanggalPengajuan,
+            waktuUpdate: n.waktuUpdate ? formatTanggalWaktuIndo(n.waktuUpdate) : n.waktuUpdate,
+          }))
+        : [],
+      userList: Array.isArray(json.userList) ? json.userList : [],
+      remoteConfig,
+      configItems: Array.isArray(json.configItems) ? json.configItems : [],
+      activityLogs: Array.isArray(json.activityLogs) ? json.activityLogs : [],
+    };
+  };
+
+  // Strategi 1: Coba GET request langsung
+  try {
+    const url = `${cleanUrl}?action=getAllData&spreadsheetId=${encodeURIComponent(ssId || '')}&t=${Date.now()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-cache',
+    });
+    if (response.ok) {
+      const json = await response.json();
+      if (json.success) {
+        return parseDataResponse(json);
+      }
+      if (json.error) {
+        return { success: false, error: json.error };
+      }
+    }
   } catch (err: any) {
-    return { success: false, error: err.message || String(err) };
+    // Jika GET gagal, lanjut ke Strategi 2 (POST fallback)
+  }
+
+  // Strategi 2: Fallback POST dengan Content-Type text/plain (menghindari preflight OPTIONS CORS)
+  try {
+    const postRes = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        action: 'getAllData',
+        spreadsheetId: ssId,
+        t: Date.now(),
+      }),
+    });
+
+    if (postRes.ok) {
+      const text = await postRes.text();
+      try {
+        const json = JSON.parse(text);
+        if (json.success) {
+          return parseDataResponse(json);
+        }
+        return { success: false, error: json.error || 'Respon spreadsheet tidak valid.' };
+      } catch {
+        return { success: false, error: 'Respon dari Apps Script bukan format JSON yang valid.' };
+      }
+    } else {
+      throw new Error(`HTTP Error: ${postRes.status}`);
+    }
+  } catch (err2: any) {
+    return {
+      success: false,
+      error: formatFetchErrorMessage(err2, cleanUrl),
+    };
   }
 }
 
 /**
  * Mengambil konfigurasi langsung dari Sheet Pengaturan
+ * Dilengkapi strategi ganda GET + POST fallback
  */
 export async function fetchSpreadsheetConfig(
   config: AppConfig
 ): Promise<{ success: boolean; config?: Partial<AppConfig>; items?: PengaturanItemSpreadsheet[]; error?: string }> {
-  try {
-    if (!config.appsScriptUrl) return { success: false, error: 'URL Google Apps Script belum dikonfigurasi.' };
-    const url = `${config.appsScriptUrl}?action=getConfig&spreadsheetId=${encodeURIComponent(config.spreadsheetId)}&t=${Date.now()}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    if (json.success) {
-      let parsedConfig: Partial<AppConfig> = {};
-      if (json.config) {
-        parsedConfig = {
-          nomorBaruMulaiDari: json.config.nomorBaruMulaiDari ? Number(json.config.nomorBaruMulaiDari) : undefined,
-          kodeUnit: json.config.kodeUnit || undefined,
-          whatsappAdmin: json.config.whatsappAdmin || undefined,
-          enableMondayRule: json.config.enableMondayRule !== undefined ? String(json.config.enableMondayRule) !== 'false' : undefined,
-          googleDriveFolderId: json.config.googleDriveFolderId || undefined,
-          syncIntervalSeconds: json.config.syncIntervalSeconds ? Number(json.config.syncIntervalSeconds) : undefined,
-          lastConfigUpdate: new Date().toISOString(),
-        };
-        if (json.config.daftarTimKerja) {
-          try {
-            const arr = JSON.parse(json.config.daftarTimKerja);
-            if (Array.isArray(arr)) parsedConfig.daftarTimKerja = arr;
-          } catch {}
-        }
-        if (json.config.pemetaanVerifikator) {
-          try {
-            const map = JSON.parse(json.config.pemetaanVerifikator);
-            if (typeof map === 'object') parsedConfig.pemetaanVerifikator = map;
-          } catch {}
-        }
-      }
-      return {
-        success: true,
-        config: parsedConfig,
-        items: Array.isArray(json.items) ? json.items : [],
+  const rawUrl = config.appsScriptUrl;
+  if (!rawUrl) return { success: false, error: 'URL Google Apps Script belum dikonfigurasi.' };
+  const cleanUrl = normalizeAppsScriptUrl(rawUrl);
+  const ssId = config.spreadsheetId;
+
+  const parseConfigData = (json: any) => {
+    let parsedConfig: Partial<AppConfig> = {};
+    if (json.config) {
+      parsedConfig = {
+        nomorBaruMulaiDari: json.config.nomorBaruMulaiDari ? Number(json.config.nomorBaruMulaiDari) : undefined,
+        kodeUnit: json.config.kodeUnit || undefined,
+        whatsappAdmin: json.config.whatsappAdmin || undefined,
+        enableMondayRule: json.config.enableMondayRule !== undefined ? String(json.config.enableMondayRule) !== 'false' : undefined,
+        googleDriveFolderId: json.config.googleDriveFolderId || undefined,
+        syncIntervalSeconds: json.config.syncIntervalSeconds ? Number(json.config.syncIntervalSeconds) : undefined,
+        lastConfigUpdate: new Date().toISOString(),
       };
+      if (json.config.daftarTimKerja) {
+        try {
+          const arr = JSON.parse(json.config.daftarTimKerja);
+          if (Array.isArray(arr)) parsedConfig.daftarTimKerja = arr;
+        } catch {}
+      }
+      if (json.config.pemetaanVerifikator) {
+        try {
+          const map = JSON.parse(json.config.pemetaanVerifikator);
+          if (typeof map === 'object') parsedConfig.pemetaanVerifikator = map;
+        } catch {}
+      }
     }
-    return { success: false, error: json.error || 'Gagal membaca sheet Pengaturan' };
+    return {
+      success: true,
+      config: parsedConfig,
+      items: Array.isArray(json.items) ? json.items : [],
+    };
+  };
+
+  // Coba GET
+  try {
+    const url = `${cleanUrl}?action=getConfig&spreadsheetId=${encodeURIComponent(ssId || '')}&t=${Date.now()}`;
+    const res = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-cache' });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success) {
+        return parseConfigData(json);
+      }
+    }
+  } catch {}
+
+  // Fallback POST
+  try {
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getConfig', spreadsheetId: ssId, t: Date.now() }),
+    });
+    if (res.ok) {
+      const text = await res.text();
+      const json = JSON.parse(text);
+      if (json.success) {
+        return parseConfigData(json);
+      }
+      return { success: false, error: json.error || 'Gagal membaca sheet Pengaturan' };
+    }
   } catch (err: any) {
-    return { success: false, error: err.message || String(err) };
+    return { success: false, error: formatFetchErrorMessage(err, cleanUrl) };
   }
+
+  return { success: false, error: 'Gagal mengambil konfigurasi dari Spreadsheet' };
 }
 
 /**

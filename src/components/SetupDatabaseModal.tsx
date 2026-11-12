@@ -294,12 +294,20 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
                 </div>
               </div>
 
-              {/* Info Note */}
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-xs text-amber-800 flex items-start gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <p>
-                  <strong>Zero Dummy Data Enforced:</strong> Seluruh data di aplikasi ini terhubung ke Spreadsheet BPS Kalbar. Setiap penerbitan nomor surat dan pengajuan draf naskah dinas langsung tersimpan ke spreadsheet resmi.
-                </p>
+              {/* Info Note & Panduan Deployment Vercel */}
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-xs text-amber-900 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Panduan Vercel / Domain Eksternal:</strong> Jika muncul pesan <em>"Failed to fetch"</em> saat sinkronisasi di Vercel, hal ini disebabkan oleh pembatasan CORS Google Apps Script. Pastikan pada Google Apps Script Anda:
+                  </p>
+                </div>
+                <ul className="list-disc list-inside space-y-1 pl-6 text-[11.5px] text-amber-800">
+                  <li>Klik <strong>Deploy &gt; Manage deployments</strong> &gt; ikon pensil (Edit) &gt; pilih <strong>New version</strong>.</li>
+                  <li>Atur <strong>Execute as:</strong> <code className="bg-amber-100 px-1 py-0.5 rounded font-bold">Me (email Anda)</code> (bukan User accessing).</li>
+                  <li>Atur <strong>Who has access:</strong> <code className="bg-amber-100 px-1 py-0.5 rounded font-bold">Anyone (Siapa saja)</code>.</li>
+                  <li>Pastikan URL berakhiran <code className="bg-amber-100 px-1 py-0.5 rounded font-bold">/exec</code> (bukan /edit). Sistem kini otomatis menormalkan URL dan melakukan fallback POST tanpa preflight.</li>
+                </ul>
               </div>
 
             </div>

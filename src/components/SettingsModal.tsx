@@ -89,6 +89,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Save handler for local state
   const handleSaveLocal = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const cleanAppsScriptUrl = appsScriptUrl.trim()
+      ? (appsScriptUrl.includes('/edit') || !appsScriptUrl.endsWith('/exec')
+          ? appsScriptUrl.trim().replace(/\s+/g, '').replace(/\/edit.*$/, '/exec').replace(/\/+$/, '')
+          : appsScriptUrl.trim())
+      : '';
+
     const updated: AppConfig = {
       ...config,
       spreadsheetId: spreadsheetId.trim(),
@@ -96,7 +102,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       nomorBaruMulaiDari: Number(nomorBaruMulaiDari) || 367,
       kodeUnit: kodeUnit.trim() || '6100',
       whatsappAdmin: whatsappAdmin.trim(),
-      appsScriptUrl: appsScriptUrl.trim(),
+      appsScriptUrl: cleanAppsScriptUrl,
       enableMondayRule,
       googleDriveFolderId: googleDriveFolderId.trim() || '1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S',
       daftarTimKerja,
@@ -106,7 +112,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       updatedBy: `${currentUser.nama} (${currentUser.role})`,
     };
     onSaveConfig(updated);
-    onToast('✔ Pengaturan sistem dan Google Drive berhasil disimpan lokal!');
+    onToast('✔ Pengaturan sistem dan Google Drive berhasil disimpan!');
     return updated;
   };
 
