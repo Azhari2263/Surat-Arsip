@@ -243,15 +243,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </div>
           )}
 
-          {/* Subtle Bottom Note */}
-          <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Database Terhubung</span>
-            </span>
-            <span>Akses Kedinasan</span>
-          </div>
-
         </div>
       </main>
 

@@ -18,6 +18,9 @@ import {
   X,
   Save,
   AlertTriangle,
+  Upload,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { DokumenFinal, NaskahDinas, UserProfile } from '../types';
 import { TIM_KERJA_OPTIONS } from '../data/bpsClassifications';
@@ -28,6 +31,8 @@ interface ArsipDigitalViewProps {
   currentUser?: UserProfile | null;
   onUpdateArsip?: (naskahId: string, updatedDoc: DokumenFinal) => void;
   onDeleteArsip?: (naskah: NaskahDinas) => void;
+  onOpenUnggahFinalModal?: (naskah: NaskahDinas) => void;
+  onBukaKembaliNaskah?: (naskahId: string, alasan: string) => void;
   onToast: (msg: string) => void;
 }
 
@@ -36,12 +41,15 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
   currentUser,
   onUpdateArsip,
   onDeleteArsip,
+  onOpenUnggahFinalModal,
+  onBukaKembaliNaskah,
   onToast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUnit, setFilterUnit] = useState('all');
   const [filterTipeTtd, setFilterTipeTtd] = useState('all');
   const [selectedDoc, setSelectedDoc] = useState<NaskahDinas | null>(null);
+  const [showSelectNaskahModal, setShowSelectNaskahModal] = useState(false);
 
   // CRUD Modals State
   const [editingDoc, setEditingDoc] = useState<NaskahDinas | null>(null);
@@ -53,11 +61,51 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
   const [editTipeTtd, setEditTipeTtd] = useState<'TTE' | 'KONVENSIONAL'>('TTE');
   const [editKeamanan, setEditKeamanan] = useState<'Biasa' | 'Terbatas' | 'Rahasia' | 'Sangat Rahasia'>('Biasa');
   const [editLokasi, setEditLokasi] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Only documents with FINAL_DIARSIPKAN status
+  const handleCopyNomorSurat = (nomorSurat: string, id: string) => {
+    if (!nomorSurat) return;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(nomorSurat);
+    }
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2500);
+    onToast('Nomor surat berhasil disalin');
+  };
+
+  // Submissions ready for final archive upload
+  const readyForArchiveList = useMemo(() => {
+    return naskahList.filter((n) => {
+      const isIssued =
+        n.status === 'NOMOR_DITERBITKAN' ||
+        n.status === 'MENUNGGU_DOKUMEN_FINAL' ||
+        (n.nomorSuratDipesan && n.status !== 'SELESAI_ARSIP' && n.status !== 'FINAL_DIARSIPKAN');
+      if (!isIssued) return false;
+      if (currentUser?.role === 'ADMIN' || currentUser?.role === 'ARSIPARIS') return true;
+      if (currentUser?.role === 'KONSEPTOR') {
+        return n.namaKonseptor.toLowerCase() === currentUser.nama.toLowerCase();
+      }
+      return true;
+    });
+  }, [naskahList, currentUser]);
+
+  const handleOpenUploadFlow = () => {
+    if (!onOpenUnggahFinalModal) return;
+    if (readyForArchiveList.length === 0) {
+      onToast('ℹ Tidak ada pengajuan yang siap diarsipkan. Pastikan draf telah diverifikasi dan nomor surat telah diterbitkan.');
+      return;
+    }
+    if (readyForArchiveList.length === 1) {
+      onOpenUnggahFinalModal(readyForArchiveList[0]);
+      return;
+    }
+    setShowSelectNaskahModal(true);
+  };
+
+  // Documents with SELESAI_ARSIP or FINAL_DIARSIPKAN status
   const arsipList = useMemo(() => {
     return naskahList
-      .filter((n) => n.status === 'FINAL_DIARSIPKAN' && n.dokumenFinal)
+      .filter((n) => (n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN') && n.dokumenFinal)
       .filter((n) => {
         if (filterUnit !== 'all' && n.unitKerja !== filterUnit) return false;
         if (filterTipeTtd !== 'all' && n.dokumenFinal?.tipeTandaTangan !== filterTipeTtd) return false;
@@ -82,7 +130,11 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
   const canManage = (item: NaskahDinas): boolean => {
     if (!currentUser) return false;
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ARSIPARIS') return true;
-    return currentUser.nama.toLowerCase() === item.namaKonseptor.toLowerCase();
+    // Role Konseptor can manage and upload their own submissions
+    if (currentUser.role === 'KONSEPTOR') {
+      return currentUser.nama.toLowerCase() === item.namaKonseptor.toLowerCase();
+    }
+    return false;
   };
 
   const handleStartEdit = (item: NaskahDinas) => {
@@ -195,13 +247,25 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={exportArsipCSV}
-          className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap self-stretch md:self-auto justify-center"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Ekspor Daftar Arsip</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto justify-end">
+          {onOpenUnggahFinalModal && (
+            <button
+              onClick={handleOpenUploadFlow}
+              className="px-3.5 py-2 rounded-xl bg-[#0f4c82] hover:bg-[#0a335a] text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Unggah Dokumen Final ke Arsip</span>
+            </button>
+          )}
+
+          <button
+            onClick={exportArsipCSV}
+            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap justify-center transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Ekspor CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary KPI Strip */}
@@ -290,9 +354,32 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
 
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-mono-tabular font-bold text-sm text-[#0f4c82] break-all">
-                      {doc.nomorSuratResmi}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono-tabular font-bold text-sm text-[#0f4c82] break-all">
+                        {doc.nomorSuratResmi}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyNomorSurat(doc.nomorSuratResmi, item.id);
+                        }}
+                        className="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-[#0f4c82] border border-blue-200 rounded text-[10px] font-sans font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Salin Nomor Surat ke Clipboard"
+                      >
+                        {copiedId === item.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Tersalin</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Salin</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                       isTte ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
                     }`}>
@@ -404,11 +491,33 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
             </div>
 
             <div className="mt-4 space-y-3">
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase">Nomor Surat Resmi</span>
-                <div className="text-base font-black font-mono-tabular text-slate-900 mt-0.5 select-all">
-                  {selectedDoc.dokumenFinal.nomorSuratResmi}
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase">Nomor Surat Resmi</span>
+                  <div className="text-base font-black font-mono-tabular text-slate-900 mt-0.5 select-all">
+                    {selectedDoc.dokumenFinal.nomorSuratResmi}
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleCopyNomorSurat(selectedDoc.dokumenFinal!.nomorSuratResmi, selectedDoc.id)
+                  }
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors shrink-0"
+                  title="Salin Nomor Surat ke Clipboard"
+                >
+                  {copiedId === selectedDoc.id ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Tersalin</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin Nomor Surat</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
@@ -675,6 +784,74 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Ya, Hapus Arsip</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog: Pilih Naskah yang Siap Diarsipkan */}
+      {showSelectNaskahModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-base text-slate-900">
+                  Pilih Pengajuan untuk Diunggah ke Arsip
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pengajuan di bawah telah memiliki nomor surat resmi dan menunggu unggah dokumen bertanda tangan (sah).
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSelectNaskahModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-2.5 flex-1 pr-1">
+              {readyForArchiveList.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-3.5 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 transition-all flex items-center justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-[#0f4c82]">
+                        {item.nomorRegistrasi}
+                      </span>
+                      <span className="text-slate-300">·</span>
+                      <span className="font-mono font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        No: {item.nomorSuratDipesan}
+                      </span>
+                    </div>
+                    <div className="font-bold text-slate-800 line-clamp-1">{item.perihal}</div>
+                    <div className="text-[11px] text-slate-500">
+                      Konseptor: {item.namaKonseptor} ({item.unitKerja})
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowSelectNaskahModal(false);
+                      if (onOpenUnggahFinalModal) onOpenUnggahFinalModal(item);
+                    }}
+                    className="px-3.5 py-1.5 bg-[#0f4c82] hover:bg-[#0a335a] text-white rounded-lg font-bold text-xs shrink-0 cursor-pointer transition-colors shadow-xs"
+                  >
+                    Unggah PDF
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowSelectNaskahModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Tutup
               </button>
             </div>
           </div>

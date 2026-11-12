@@ -9,37 +9,37 @@ export interface VerifikatorMappingItem {
 
 export const VERIFIKATOR_MAPPING: VerifikatorMappingItem[] = [
   {
-    nama: 'Yun',
+    nama: 'M. Yun Imran, S.E.',
     role: 'VERIFIKATOR_YUN',
-    unitKerjaDitangani: ['SDM dan Hukum', 'Keuangan'],
-    deskripsi: 'Verifikator Draf Naskah Dinas Tim SDM dan Keuangan',
+    unitKerjaDitangani: ['Tim SDM', 'Tim Keuangan', 'SDM dan Hukum', 'Keuangan'],
+    deskripsi: 'Verifikator Tim SDM dan Tim Keuangan',
   },
   {
-    nama: 'Amanda',
+    nama: 'Amanda Putri, A.Md.',
     role: 'VERIFIKATOR_AMANDA',
-    unitKerjaDitangani: ['Neraca'], // Tim Perencanaan dan Neraca
-    deskripsi: 'Verifikator Draf Naskah Dinas Tim Perencanaan dan Neraca',
+    unitKerjaDitangani: ['Tim Perencanaan', 'Tim Neraca', 'Neraca'],
+    deskripsi: 'Verifikator Tim Perencanaan dan Tim Neraca',
   },
   {
-    nama: 'Rania',
+    nama: 'Rania Naila Husna, A.Md.A.B',
     role: 'VERIFIKATOR_RANIA',
-    unitKerjaDitangani: ['Distribusi', 'Sosial'],
-    deskripsi: 'Verifikator Draf Naskah Dinas Tim Distribusi dan Sosial',
+    unitKerjaDitangani: ['Tim Distribusi', 'Tim Sosial', 'Distribusi', 'Sosial'],
+    deskripsi: 'Verifikator Tim Distribusi dan Tim Sosial',
   },
   {
-    nama: 'Vivi',
+    nama: 'Alfiana Ayuni, A.Md.',
     role: 'VERIFIKATOR_VIVI',
-    unitKerjaDitangani: ['Produksi'],
-    deskripsi: 'Verifikator Draf Naskah Dinas Tim Produksi',
+    unitKerjaDitangani: ['Tim Produksi', 'Produksi'],
+    deskripsi: 'Verifikator Tim Produksi',
   },
   {
-    nama: 'Agus',
+    nama: 'Agustinus Supriadi, S.M.',
     role: 'VERIFIKATOR_AGUS',
-    unitKerjaDitangani: ['IPDS', 'Tim Umum', 'Sekretaris'],
-    deskripsi: 'Verifikator Draf Naskah Dinas Tim IPDS serta Tim Umum dan Humas',
+    unitKerjaDitangani: ['Tim IPDS', 'Tim Umum & Humas', 'Tim Umum', 'IPDS', 'Sekretaris'],
+    deskripsi: 'Verifikator Tim IPDS dan Tim Umum & Humas',
   },
   {
-    nama: 'Arsiparis BPS',
+    nama: 'Arsiparis Ahli BPS Kalbar',
     role: 'ARSIPARIS',
     unitKerjaDitangani: ['Semua Unit Kerja'],
     deskripsi: 'Verifikasi Aspek Kearsipan dan Tata Naskah Dinas Formal',
@@ -53,22 +53,27 @@ export const DAFTAR_PENGGUNA: UserProfile[] = [];
 export function tentukanVerifikator(unitKerja: string): { nama: string; role: UserRole; deskripsi: string } {
   const normalized = unitKerja.toLowerCase();
 
+  // M. Yun Imran, S.E.: Tim SDM dan Tim Keuangan
   if (normalized.includes('sdm') || normalized.includes('hukum') || normalized.includes('keuangan')) {
-    return { nama: 'Yun', role: 'VERIFIKATOR_YUN', deskripsi: 'Verifikator Tim SDM dan Keuangan' };
+    return { nama: 'M. Yun Imran, S.E.', role: 'VERIFIKATOR_YUN', deskripsi: 'Verifikator Tim SDM dan Tim Keuangan' };
   }
+  // Amanda Putri, A.Md.: Tim Perencanaan dan Tim Neraca
   if (normalized.includes('neraca') || normalized.includes('rencana') || normalized.includes('perencanaan')) {
-    return { nama: 'Amanda', role: 'VERIFIKATOR_AMANDA', deskripsi: 'Verifikator Tim Perencanaan dan Neraca' };
+    return { nama: 'Amanda Putri, A.Md.', role: 'VERIFIKATOR_AMANDA', deskripsi: 'Verifikator Tim Perencanaan dan Tim Neraca' };
   }
+  // Rania Naila Husna, A.Md.A.B: Tim Distribusi dan Tim Sosial
   if (normalized.includes('distribusi') || normalized.includes('sosial')) {
-    return { nama: 'Rania', role: 'VERIFIKATOR_RANIA', deskripsi: 'Verifikator Tim Distribusi dan Sosial' };
+    return { nama: 'Rania Naila Husna, A.Md.A.B', role: 'VERIFIKATOR_RANIA', deskripsi: 'Verifikator Tim Distribusi dan Tim Sosial' };
   }
+  // Alfiana Ayuni, A.Md.: Tim Produksi
   if (normalized.includes('produksi')) {
-    return { nama: 'Vivi', role: 'VERIFIKATOR_VIVI', deskripsi: 'Verifikator Tim Produksi' };
+    return { nama: 'Alfiana Ayuni, A.Md.', role: 'VERIFIKATOR_VIVI', deskripsi: 'Verifikator Tim Produksi' };
   }
+  // Agustinus Supriadi, S.M.: Tim IPDS dan Tim Umum & Humas
   if (normalized.includes('ipds') || normalized.includes('umum') || normalized.includes('humas') || normalized.includes('sekretaris')) {
-    return { nama: 'Agus', role: 'VERIFIKATOR_AGUS', deskripsi: 'Verifikator Tim IPDS serta Tim Umum dan Humas' };
+    return { nama: 'Agustinus Supriadi, S.M.', role: 'VERIFIKATOR_AGUS', deskripsi: 'Verifikator Tim IPDS dan Tim Umum & Humas' };
   }
 
   // Default ke Arsiparis untuk unit kerja lainnya
-  return { nama: 'Arsiparis BPS', role: 'ARSIPARIS', deskripsi: 'Verifikasi Aspek Kearsipan & Tata Naskah Dinas' };
+  return { nama: 'Arsiparis Ahli BPS Kalbar', role: 'ARSIPARIS', deskripsi: 'Verifikasi Aspek Kearsipan & Tata Naskah Dinas' };
 }

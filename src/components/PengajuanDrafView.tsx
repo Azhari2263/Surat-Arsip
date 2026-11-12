@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Upload,
@@ -23,8 +23,22 @@ import {
   PlusCircle,
   ListOrdered,
   ChevronRight,
+  Lock,
+  Copy,
+  Check,
+  Hash,
+  Send,
+  HelpCircle,
 } from 'lucide-react';
-import { JenisNaskahDinas, NaskahDinas, StatusNaskah, SuratKeluar, UserProfile, UserRole } from '../types';
+import {
+  JenisNaskahDinas,
+  KodeSuratType,
+  NaskahDinas,
+  StatusNaskah,
+  SuratKeluar,
+  UserProfile,
+  UserRole,
+} from '../types';
 import { TIM_KERJA_OPTIONS, DAFTAR_KLASIFIKASI_BPS } from '../data/bpsClassifications';
 import { tentukanVerifikator } from '../data/verifikatorData';
 import { NaskahTimelineModal } from './NaskahTimelineModal';
@@ -34,11 +48,30 @@ interface PengajuanDrafViewProps {
   currentUser: UserProfile;
   suratList: SuratKeluar[];
   naskahList?: NaskahDinas[];
+  preselectedKosong?: SuratKeluar | null;
+  onClearPreselectedKosong?: () => void;
   onSubmitDraf: (
-    data: Omit<NaskahDinas, 'id' | 'nomorRegistrasi' | 'status' | 'riwayatVersi' | 'riwayatVerifikasi' | 'waktuUpdate'>
+    data: Omit<
+      NaskahDinas,
+      | 'id'
+      | 'nomorRegistrasi'
+      | 'status'
+      | 'riwayatVersi'
+      | 'riwayatVerifikasi'
+      | 'waktuUpdate'
+    >
   ) => void;
   onNavigateToPedoman: () => void;
   onOpenRevisiModal?: (naskah: NaskahDinas) => void;
+  onOpenUnggahFinalModal?: (naskah: NaskahDinas) => void;
+  onTerbitkanNomorSurat?: (naskah: NaskahDinas) => void;
+  onVerifikasiKeputusan?: (
+    naskahId: string,
+    keputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN' | 'DITOLAK',
+    catatan: string,
+    checklist: any
+  ) => void;
+  onBukaKembaliNaskah?: (naskahId: string, alasan: string) => void;
   onToast?: (msg: string) => void;
 }
 
@@ -59,25 +92,66 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
   currentUser,
   suratList,
   naskahList = [],
+  preselectedKosong,
+  onClearPreselectedKosong,
   onSubmitDraf,
   onNavigateToPedoman,
   onOpenRevisiModal,
+  onOpenUnggahFinalModal,
+  onTerbitkanNomorSurat,
+  onVerifikasiKeputusan,
+  onBukaKembaliNaskah,
   onToast,
 }) => {
   const [subTab, setSubTab] = useState<'form' | 'timeline'>('form');
 
-  // Form Fields
+  // Form Fields - Sesuai Ketentuan Integrasi Penuh
   const [jenisNaskah, setJenisNaskah] = useState<JenisNaskahDinas>('Surat Dinas Biasa');
+  const [kodeSurat, setKodeSurat] = useState<KodeSuratType>('B');
   const [perihal, setPerihal] = useState('');
-  const [unitKerja, setUnitKerja] = useState(
-    currentUser.unitKerja !== 'Semua Unit Kerja' ? currentUser.unitKerja : 'Sosial'
-  );
+  const [tujuan, setTujuan] = useState('');
+  const [tanggalSurat, setTanggalSurat] = useState(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
   const [namaKonseptor, setNamaKonseptor] = useState(currentUser.nama);
   const [klasifikasiArsip, setKlasifikasiArsip] = useState('VS.100');
-  const [nomorSuratDipesan, setNomorSuratDipesan] = useState('');
   const [ringkasanIsi, setRingkasanIsi] = useState('');
 
-  // Uploaded Word file
+  // Mode Penomoran Terintegrasi: 'baru' (Nomor Otomatis) | 'kosong' (Gunakan Slot Kosong Tersedia)
+  const [modePenomoran, setModePenomoran] = useState<'baru' | 'kosong'>('baru');
+  const [selectedKosongNomor, setSelectedKosongNomor] = useState<number | null>(null);
+
+  // Field Tim Kerja Konseptor: Read-Only, terisi otomatis dari profil akun login
+  const unitKerja = useMemo(() => {
+    if (currentUser.unitKerja && currentUser.unitKerja !== 'Semua Unit Kerja') {
+      return currentUser.unitKerja;
+    }
+    return 'Sosial'; // Fallback aman
+  }, [currentUser.unitKerja]);
+
+  // Penentuan Verifikator Otomatis berdasarkan Unit Kerja Akun Konseptor
+  const verifikatorInfo = useMemo(() => tentukanVerifikator(unitKerja), [unitKerja]);
+
+  // List slot nomor kosong yang tersedia di register
+  const emptySuratList = useMemo(
+    () => suratList.filter((s) => s.status === 'KOSONG'),
+    [suratList]
+  );
+
+  // Sync jika ada slot kosong yang dipilih dari tabel atau subtab nomor kosong
+  useEffect(() => {
+    if (preselectedKosong) {
+      setModePenomoran('kosong');
+      setSelectedKosongNomor(preselectedKosong.nomorUrut);
+      setSubTab('form');
+    }
+  }, [preselectedKosong]);
+
+  // Uploaded Word file (.docx / .doc)
   const [uploadedFile, setUploadedFile] = useState<{
     name: string;
     size: number;
@@ -91,22 +165,17 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Timeline Filter & Search for Konseptor
   const [timelineSearch, setTimelineSearch] = useState('');
   const [timelineStatusFilter, setTimelineStatusFilter] = useState<string>('all');
   const [selectedTimelineNaskah, setSelectedTimelineNaskah] = useState<NaskahDinas | null>(null);
 
-  // Auto-derived verifier based on unit kerja
-  const verifikatorInfo = tentukanVerifikator(unitKerja);
-
-  // Available completed letter numbers from register
-  const availableNomorSurat = suratList.filter((s) => s.status === 'LENGKAP');
-
   // Konseptor submissions: filter by user or show all if Admin
   const mySubmissions = useMemo(() => {
     return naskahList.filter((item) => {
-      if (currentUser.role === 'ADMIN') return true;
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'ARSIPARIS') return true;
       return (
         item.namaKonseptor.toLowerCase() === currentUser.nama.toLowerCase() ||
         item.unitKerja.toLowerCase() === currentUser.unitKerja.toLowerCase()
@@ -116,7 +185,33 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
 
   const filteredMySubmissions = useMemo(() => {
     return mySubmissions.filter((item) => {
-      if (timelineStatusFilter !== 'all' && item.status !== timelineStatusFilter) return false;
+      if (timelineStatusFilter !== 'all') {
+        if (timelineStatusFilter === 'MENUNGGU_VERIFIKASI') {
+          if (
+            item.status !== 'MENUNGGU_VERIFIKASI' &&
+            item.status !== 'DRAF_DIAJUKAN' &&
+            item.status !== 'SEDANG_DIPERIKSA'
+          )
+            return false;
+        } else if (timelineStatusFilter === 'MENUNGGU_PENOMORAN') {
+          if (
+            item.status !== 'MENUNGGU_PENOMORAN' &&
+            !(item.status === 'TERVERIFIKASI' && !item.nomorSuratDipesan)
+          )
+            return false;
+        } else if (timelineStatusFilter === 'NOMOR_DITERBITKAN') {
+          if (
+            item.status !== 'NOMOR_DITERBITKAN' &&
+            item.status !== 'MENUNGGU_DOKUMEN_FINAL' &&
+            !(item.status === 'TERVERIFIKASI' && item.nomorSuratDipesan)
+          )
+            return false;
+        } else if (timelineStatusFilter === 'SELESAI_ARSIP') {
+          if (item.status !== 'SELESAI_ARSIP' && item.status !== 'FINAL_DIARSIPKAN') return false;
+        } else if (item.status !== timelineStatusFilter) {
+          return false;
+        }
+      }
       if (timelineSearch.trim()) {
         const q = timelineSearch.toLowerCase();
         return (
@@ -160,9 +255,15 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
   const validate = (): boolean => {
     const errs: { [key: string]: string } = {};
     if (!perihal.trim()) errs.perihal = 'Perihal naskah dinas wajib diisi';
-    if (!namaKonseptor.trim()) errs.namaKonseptor = 'Nama konseptor wajib diisi';
-    if (!unitKerja) errs.unitKerja = 'Pilih unit kerja pengusul';
-    if (!uploadedFile) errs.uploadedFile = 'Unggah file draf naskah dinas dalam format Word (.doc/.docx)';
+    if (!tujuan.trim()) errs.tujuan = 'Tujuan surat dinas (Kepada Yth.) wajib diisi';
+    if (!namaKonseptor.trim()) errs.namaKonseptor = 'Nama konseptor pegawai wajib diisi';
+    if (!klasifikasiArsip.trim()) errs.klasifikasiArsip = 'Kode klasifikasi arsip wajib diisi';
+    if (modePenomoran === 'kosong' && !selectedKosongNomor) {
+      errs.selectedKosongNomor = 'Pilih salah satu nomor urut kosong yang tersedia';
+    }
+    if (!uploadedFile) {
+      errs.uploadedFile = 'Unggah file draf naskah dinas dalam format Word (.doc/.docx)';
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -173,41 +274,84 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
 
     setIsSubmitting(true);
     const today = new Date();
-    const tglPengajuan = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+    const tglPengajuan = `${String(today.getDate()).padStart(2, '0')}/${String(
+      today.getMonth() + 1
+    ).padStart(2, '0')}/${today.getFullYear()}`;
+
+    // Format tanggal surat dinas ke dd/MM/yyyy
+    let tglSuratFormatted = tglPengajuan;
+    if (tanggalSurat) {
+      const parts = tanggalSurat.split('-');
+      if (parts.length === 3) {
+        tglSuratFormatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+    }
 
     onSubmitDraf({
       jenisNaskah,
+      kodeSurat,
       perihal: perihal.trim(),
-      unitKerja,
+      tujuan: tujuan.trim(),
+      unitKerja, // Read-only dari akun login
       namaKonseptor: namaKonseptor.trim(),
       tanggalPengajuan: tglPengajuan,
+      tanggalSurat: tglSuratFormatted,
       verifikatorDitunjuk: verifikatorInfo.nama,
       roleVerifikatorDitunjuk: verifikatorInfo.role,
       klasifikasiArsip: klasifikasiArsip.trim(),
-      nomorSuratDipesan: nomorSuratDipesan.trim() || undefined,
+      nomorUrutKosongDipilih:
+        modePenomoran === 'kosong' && selectedKosongNomor ? selectedKosongNomor : undefined,
       ringkasanIsi: ringkasanIsi.trim(),
       drafFile: uploadedFile!,
     });
 
     setIsSubmitting(false);
 
-    // Reset form and switch to timeline tab to show new submission
+    // Reset form dan alihkan ke tab timeline
     setPerihal('');
+    setTujuan('');
     setRingkasanIsi('');
     setUploadedFile(null);
+    setModePenomoran('baru');
+    setSelectedKosongNomor(null);
+    if (onClearPreselectedKosong) onClearPreselectedKosong();
     setSubTab('timeline');
+  };
+
+  // Fungsi Salin Nomor Surat ke Clipboard
+  const handleCopyNomorSurat = (nomorSurat: string, itemId: string) => {
+    if (!nomorSurat) return;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(nomorSurat);
+    }
+    setCopiedId(itemId);
+    setTimeout(() => setCopiedId(null), 2500);
+    if (onToast) {
+      onToast('Nomor surat berhasil disalin');
+    }
   };
 
   const getStatusBadgeStyle = (status: StatusNaskah) => {
     switch (status) {
+      case 'DRAFT':
+        return 'bg-slate-100 text-slate-700 border-slate-300';
+      case 'MENUNGGU_VERIFIKASI':
       case 'DRAF_DIAJUKAN':
-        return 'bg-blue-100 text-[#0f4c82] border-blue-200';
       case 'SEDANG_DIPERIKSA':
-        return 'bg-amber-100 text-amber-900 border-amber-200';
+        return 'bg-blue-100 text-[#0f4c82] border-blue-200';
       case 'PERLU_PERBAIKAN':
         return 'bg-rose-100 text-rose-900 border-rose-200';
+      case 'DITOLAK':
+        return 'bg-red-100 text-red-900 border-red-300';
+      case 'MENUNGGU_PENOMORAN':
+        return 'bg-amber-100 text-amber-900 border-amber-300';
+      case 'NOMOR_DITERBITKAN':
+        return 'bg-indigo-100 text-indigo-900 border-indigo-200';
+      case 'MENUNGGU_DOKUMEN_FINAL':
+        return 'bg-cyan-100 text-cyan-900 border-cyan-200';
       case 'TERVERIFIKASI':
         return 'bg-emerald-100 text-emerald-900 border-emerald-200';
+      case 'SELESAI_ARSIP':
       case 'FINAL_DIARSIPKAN':
         return 'bg-slate-900 text-emerald-400 border-slate-700';
       default:
@@ -217,34 +361,52 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
 
   const getStatusLabel = (status: StatusNaskah) => {
     switch (status) {
+      case 'DRAFT':
+        return 'Draft';
+      case 'MENUNGGU_VERIFIKASI':
       case 'DRAF_DIAJUKAN':
         return 'Menunggu Verifikasi';
       case 'SEDANG_DIPERIKSA':
         return 'Sedang Diperiksa';
       case 'PERLU_PERBAIKAN':
-        return 'Perlu Revisi';
+        return 'Perlu Perbaikan';
+      case 'DITOLAK':
+        return 'Ditolak';
+      case 'MENUNGGU_PENOMORAN':
+        return 'Menunggu Nomor Surat';
+      case 'NOMOR_DITERBITKAN':
+        return 'Nomor Surat Diterbitkan';
+      case 'MENUNGGU_DOKUMEN_FINAL':
+        return 'Menunggu Unggah Final Sah';
       case 'TERVERIFIKASI':
-        return 'Terverifikasi (Siap TTD)';
+        return 'Disetujui (Siap Nomor/TTD)';
+      case 'SELESAI_ARSIP':
       case 'FINAL_DIARSIPKAN':
-        return 'Final di Arsip Digital';
+        return 'Selesai – Arsip Permanen';
       default:
         return status;
     }
   };
 
-  // Helper to determine step index (1 to 5)
   const getProgressStepIndex = (status: StatusNaskah): number => {
     switch (status) {
+      case 'DRAFT':
+        return 0;
+      case 'MENUNGGU_VERIFIKASI':
       case 'DRAF_DIAJUKAN':
-        return 1;
       case 'SEDANG_DIPERIKSA':
-        return 2;
       case 'PERLU_PERBAIKAN':
-        return 2; // In review stage with return
+      case 'DITOLAK':
+        return 1;
+      case 'MENUNGGU_PENOMORAN':
       case 'TERVERIFIKASI':
-        return 4;
+        return 2;
+      case 'NOMOR_DITERBITKAN':
+      case 'MENUNGGU_DOKUMEN_FINAL':
+        return 3;
+      case 'SELESAI_ARSIP':
       case 'FINAL_DIARSIPKAN':
-        return 5;
+        return 4;
       default:
         return 1;
     }
@@ -257,13 +419,13 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-[#0f4c82] border border-blue-200/70 mb-2">
             <UserCheck className="w-3.5 h-3.5 text-[#1a6bb5]" />
-            <span>Kewenangan: Konseptor Pegawai & Unit Pengusul</span>
+            <span>Kewenangan: Konseptor Pegawai ({currentUser.nama})</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-heading">
-            Pengajuan & Timeline Progres Naskah Dinas
+            Pengajuan Draf Naskah Dinas & Permintaan Nomor Surat
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
-            Ajukan draf naskah dinas dalam format Microsoft Word (.docx) dan pantau perkembangan alur verifikasi dari pengiriman awal hingga pengesahan dan penyimpanan arsip digital.
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-3xl leading-relaxed">
+            Formulir terpadu untuk penyusunan draf naskah dinas, verifikasi mutu tata naskah, otomatisasi penugasan verifikator tim kerja, hingga penerbitan nomor surat keluar resmi BPS Provinsi Kalimantan Barat.
           </p>
         </div>
 
@@ -278,7 +440,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
             }`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
-            <span>Form Pengajuan Baru</span>
+            <span>Formulir Pengajuan Terpadu</span>
           </button>
 
           <button
@@ -315,7 +477,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                 type="text"
                 value={timelineSearch}
                 onChange={(e) => setTimelineSearch(e.target.value)}
-                placeholder="Cari berdasarkan nomor registrasi, perihal, atau jenis naskah..."
+                placeholder="Cari berdasarkan nomor registrasi, nomor surat, perihal, atau jenis naskah..."
                 className="w-full h-10 pl-10 pr-4 text-xs sm:text-sm rounded-xl border border-slate-300 text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all placeholder:text-slate-400"
               />
             </div>
@@ -331,10 +493,12 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                 className="h-10 text-xs px-3.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-medium outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer"
               >
                 <option value="all">Semua Status ({mySubmissions.length})</option>
-                <option value="DRAF_DIAJUKAN">Menunggu Verifikasi</option>
+                <option value="MENUNGGU_VERIFIKASI">Menunggu Verifikasi</option>
                 <option value="PERLU_PERBAIKAN">Perlu Perbaikan / Revisi</option>
-                <option value="TERVERIFIKASI">Terverifikasi (Siap TTD)</option>
-                <option value="FINAL_DIARSIPKAN">Final Diarsipkan</option>
+                <option value="DITOLAK">Ditolak</option>
+                <option value="MENUNGGU_PENOMORAN">Menunggu Penerbitan Nomor Surat</option>
+                <option value="NOMOR_DITERBITKAN">Nomor Surat Diterbitkan</option>
+                <option value="SELESAI_ARSIP">Selesai – Diarsipkan</option>
               </select>
             </div>
           </div>
@@ -347,7 +511,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
               </div>
               <h4 className="text-sm font-bold text-slate-800">Belum Ada Pengajuan Naskah</h4>
               <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                Anda belum memiliki pengajuan naskah dinas dalam sistem. Silakan klik tombol "Ajukan Draf Naskah Baru" untuk memulai.
+                Anda belum memiliki draf pengajuan naskah dinas. Silakan gunakan form pengajuan terpadu untuk mengajukan draf baru.
               </p>
               <button
                 onClick={() => setSubTab('form')}
@@ -362,8 +526,18 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
               {filteredMySubmissions.map((item) => {
                 const stepIndex = getProgressStepIndex(item.status);
                 const isNeedRevision = item.status === 'PERLU_PERBAIKAN';
-                const isVerified = item.status === 'TERVERIFIKASI';
-                const isArchived = item.status === 'FINAL_DIARSIPKAN';
+                const isRejected = item.status === 'DITOLAK';
+                const isWaitingNumber =
+                  item.status === 'MENUNGGU_PENOMORAN' ||
+                  (item.status === 'TERVERIFIKASI' && !item.nomorSuratDipesan);
+                const isNumberIssued =
+                  item.status === 'NOMOR_DITERBITKAN' ||
+                  item.status === 'MENUNGGU_DOKUMEN_FINAL' ||
+                  (item.nomorSuratDipesan &&
+                    item.status !== 'SELESAI_ARSIP' &&
+                    item.status !== 'FINAL_DIARSIPKAN');
+                const isArchived =
+                  item.status === 'SELESAI_ARSIP' || item.status === 'FINAL_DIARSIPKAN';
 
                 // Get latest review note if any
                 const latestNote =
@@ -389,8 +563,46 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                             <Building className="w-3.5 h-3.5" />
                             <span>{item.unitKerja}</span>
                           </span>
+
+                          {/* Tombol Salin Nomor Surat jika nomor sudah diterbitkan */}
+                          {item.nomorSuratDipesan && (
+                            <>
+                              <span className="text-slate-300">·</span>
+                              <div className="inline-flex items-center gap-1.5 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200">
+                                <span className="font-mono text-emerald-800 font-bold text-xs">
+                                  {item.nomorSuratDipesan}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleCopyNomorSurat(item.nomorSuratDipesan!, item.id)
+                                  }
+                                  className="p-1 hover:bg-emerald-100 rounded text-emerald-700 transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+                                  title="Salin Nomor Surat ke Clipboard"
+                                >
+                                  {copiedId === item.id ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700">Tersalin</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Salin</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
+
                         <h3 className="text-base font-bold text-slate-900 mt-1">{item.perihal}</h3>
+                        {item.tujuan && (
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Tujuan: <strong className="text-slate-700">{item.tujuan}</strong>
+                          </p>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
@@ -399,16 +611,22 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                             item.status
                           )}`}
                         >
-                          {item.status === 'DRAF_DIAJUKAN' && (
+                          {item.status === 'MENUNGGU_VERIFIKASI' && (
                             <Clock className="w-3.5 h-3.5 text-blue-600 animate-spin" />
                           )}
                           {item.status === 'PERLU_PERBAIKAN' && (
                             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
                           )}
-                          {item.status === 'TERVERIFIKASI' && (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          {item.status === 'DITOLAK' && (
+                            <X className="w-3.5 h-3.5 text-red-600" />
                           )}
-                          {item.status === 'FINAL_DIARSIPKAN' && (
+                          {item.status === 'MENUNGGU_PENOMORAN' && (
+                            <Hash className="w-3.5 h-3.5 text-amber-600" />
+                          )}
+                          {item.status === 'NOMOR_DITERBITKAN' && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                          )}
+                          {item.status === 'SELESAI_ARSIP' && (
                             <Archive className="w-3.5 h-3.5 text-emerald-400" />
                           )}
                           <span>{getStatusLabel(item.status)}</span>
@@ -419,10 +637,10 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                     {/* Timeline 5-Stage Stepper Bar */}
                     <div className="py-2">
                       <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                        Tahapan Progres Naskah:
+                        Tahapan Terpadu Pengajuan & Penerbitan:
                       </div>
                       <div className="grid grid-cols-5 gap-2 text-center text-[11px]">
-                        {/* Step 1: Pengajuan Dikirim */}
+                        {/* Step 1: Draf Dikirim */}
                         <div
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
                             stepIndex >= 1
@@ -437,7 +655,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                           >
                             1
                           </div>
-                          <span className="font-bold line-clamp-1">1. Dikirim</span>
+                          <span className="font-bold line-clamp-1">1. Draf Diajukan</span>
                           <span className="text-[9px] text-slate-400 font-mono-tabular truncate">
                             {formatTanggalIndo(item.tanggalPengajuan)}
                           </span>
@@ -448,6 +666,8 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
                             isNeedRevision
                               ? 'bg-rose-50 border-rose-200 text-rose-900 ring-2 ring-rose-200'
+                              : isRejected
+                              ? 'bg-red-50 border-red-300 text-red-900'
                               : stepIndex >= 2
                               ? 'bg-blue-50/80 border-blue-200 text-[#0f4c82]'
                               : 'bg-slate-50 border-slate-200 text-slate-400'
@@ -457,6 +677,8 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                             className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
                               isNeedRevision
                                 ? 'bg-rose-600 text-white'
+                                : isRejected
+                                ? 'bg-red-600 text-white'
                                 : stepIndex >= 2
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-slate-300 text-slate-600'
@@ -464,55 +686,61 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                           >
                             2
                           </div>
-                          <span className="font-bold line-clamp-1">2. Verifikasi</span>
+                          <span className="font-bold line-clamp-1">2. Verifikasi Mutu</span>
                           <span className="text-[9px] text-slate-500 truncate">{item.verifikatorDitunjuk}</span>
                         </div>
 
-                        {/* Step 3: Revisi (jika ada) */}
+                        {/* Step 3: Nomor Surat Diterbitkan */}
                         <div
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
-                            item.riwayatVersi && item.riwayatVersi.length > 0
-                              ? 'bg-purple-50 border-purple-200 text-purple-900'
-                              : isNeedRevision
-                              ? 'bg-rose-50/60 border-rose-200 text-rose-800'
+                            stepIndex >= 3 || isNumberIssued
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                              : isWaitingNumber
+                              ? 'bg-amber-50 border-amber-300 text-amber-900 animate-pulse'
                               : 'bg-slate-50 border-slate-200 text-slate-400'
                           }`}
                         >
                           <div
                             className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                              item.riwayatVersi && item.riwayatVersi.length > 0
-                                ? 'bg-purple-600 text-white'
-                                : isNeedRevision
-                                ? 'bg-rose-500 text-white animate-pulse'
+                              stepIndex >= 3 || isNumberIssued
+                                ? 'bg-indigo-600 text-white'
+                                : isWaitingNumber
+                                ? 'bg-amber-600 text-white'
                                 : 'bg-slate-300 text-slate-600'
                             }`}
                           >
                             3
                           </div>
-                          <span className="font-bold line-clamp-1">3. Revisi</span>
+                          <span className="font-bold line-clamp-1">3. Nomor Surat</span>
                           <span className="text-[9px] text-slate-500 truncate">
-                            {item.riwayatVersi?.length ? `${item.riwayatVersi.length}x Revisi` : isNeedRevision ? 'Diperlukan' : 'Sesuai'}
+                            {item.nomorSuratDipesan ? 'Diterbitkan' : isWaitingNumber ? 'Menunggu Terbit' : 'Belum'}
                           </span>
                         </div>
 
-                        {/* Step 4: Persetujuan / Terverifikasi */}
+                        {/* Step 4: Tanda Tangan Sah */}
                         <div
                           className={`p-2 rounded-xl border flex flex-col items-center gap-1 ${
-                            isVerified
+                            isArchived
                               ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                              : isNumberIssued
+                              ? 'bg-cyan-50 border-cyan-200 text-cyan-900'
                               : 'bg-slate-50 border-slate-200 text-slate-400'
                           }`}
                         >
                           <div
                             className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                              isVerified ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-600'
+                              isArchived
+                                ? 'bg-emerald-600 text-white'
+                                : isNumberIssued
+                                ? 'bg-cyan-600 text-white'
+                                : 'bg-slate-300 text-slate-600'
                             }`}
                           >
                             4
                           </div>
-                          <span className="font-bold line-clamp-1">4. Disetujui</span>
+                          <span className="font-bold line-clamp-1">4. Tanda Tangan Sah</span>
                           <span className="text-[9px] text-slate-500 truncate">
-                            {isVerified ? 'Siap TTD' : 'Menunggu'}
+                            {isArchived ? 'Selesai TTD' : isNumberIssued ? 'Proses TTE/Basah' : 'Menunggu'}
                           </span>
                         </div>
 
@@ -531,9 +759,9 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                           >
                             5
                           </div>
-                          <span className="font-bold line-clamp-1">5. Diarsipkan</span>
+                          <span className="font-bold line-clamp-1">5. Arsip Digital</span>
                           <span className="text-[9px] truncate">
-                            {isArchived ? 'Sah & Lengkap' : 'Menunggu TTD'}
+                            {isArchived ? 'Tersimpan Sah' : 'Menunggu Berkas'}
                           </span>
                         </div>
                       </div>
@@ -564,12 +792,76 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                       </div>
                     )}
 
+                    {/* Notice if rejected */}
+                    {isRejected && (
+                      <div className="p-3.5 rounded-xl bg-red-50 border border-red-300 text-xs text-red-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-bold text-red-900 flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                            <span>Pengajuan Ditolak oleh {item.verifikatorDitunjuk}:</span>
+                          </div>
+                          <p className="text-red-800 leading-relaxed italic pl-5.5">
+                            "{item.alasanPenolakan || 'Format atau substansi tidak sesuai ketentuan kearsipan BPS.'}"
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Notice & Action if Number Issued (Tahap Finalisasi) */}
+                    {isNumberIssued && (
+                      <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-bold text-indigo-900 flex items-center gap-1.5 flex-wrap">
+                            <CheckCircle2 className="w-4 h-4 text-indigo-700 shrink-0" />
+                            <span>Nomor Surat Resmi Diterbitkan:</span>
+                            <span className="font-mono bg-white px-2 py-0.5 rounded border border-indigo-200 text-indigo-950 font-bold select-all">
+                              {item.nomorSuratDipesan}
+                            </span>
+                            {/* Tombol Salin Nomor Surat */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopyNomorSurat(item.nomorSuratDipesan!, item.id)
+                              }
+                              className="px-2.5 py-1 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 font-bold rounded-lg shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                              title="Salin Nomor Surat ke Clipboard"
+                            >
+                              {copiedId === item.id ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span className="text-emerald-700">Tersalin</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>Salin Nomor Surat</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-indigo-800 leading-relaxed pl-5.5">
+                            Nomor surat telah resmi tercatat di register keluar BPS. Silakan cantumkan nomor surat ini pada naskah, selesaikan tanda tangan resmi (TTE BSrE / tanda tangan basah), lalu unggah berkas final ke Arsip Digital.
+                          </p>
+                        </div>
+
+                        {onOpenUnggahFinalModal && (
+                          <button
+                            onClick={() => onOpenUnggahFinalModal(item)}
+                            className="px-4 py-2 bg-[#0f4c82] hover:bg-[#0a335a] text-white font-bold rounded-xl shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                            <span>Unggah Dokumen Final (Sah)</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {/* Footer Row: Metadata & Action Buttons */}
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-500 border-t border-slate-100">
                       <div className="flex flex-wrap items-center gap-3">
-                        <span>Verifikator: <strong>{item.verifikatorDitunjuk}</strong></span>
+                        <span>Verifikator: <strong className="text-slate-700">{item.verifikatorDitunjuk}</strong></span>
                         <span>·</span>
-                        <span>Klasifikasi: <strong className="font-mono">{item.klasifikasiArsip}</strong></span>
+                        <span>Klasifikasi: <strong className="font-mono text-slate-700">{item.klasifikasiArsip}</strong></span>
                         {item.drafFile?.name && (
                           <>
                             <span>·</span>
@@ -609,214 +901,457 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* SUBTAB 1: FORMULIR PENGAJUAN DRAF NASKAH BARU                    */}
+      {/* SUBTAB 1: FORMULIR PENGAJUAN DRAF TERPADU                        */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       {subTab === 'form' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 mb-6 gap-3">
             <div>
-              <h3 className="font-bold text-base text-slate-900 font-heading">
-                Formulir Pengajuan Draf Naskah Dinas (.docx)
+              <h3 className="font-bold text-base text-slate-900 font-heading flex items-center gap-2">
+                <span>Formulir Pengajuan Draf Naskah & Permintaan Nomor Surat</span>
+                <span className="text-xs bg-blue-50 text-[#0f4c82] px-2.5 py-0.5 rounded-full border border-blue-200 font-mono">
+                  Unit 6100
+                </span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Isi metadata naskah dan unggah draf Word resmi untuk diteruskan ke verifikator tim kerja.
+                Isi seluruh data yang dibutuhkan dalam satu alur terpadu. Data akan otomatis diteruskan dari verifikasi mutu hingga penerbitan nomor surat resmi.
               </p>
             </div>
             <button
               type="button"
               onClick={onNavigateToPedoman}
-              className="px-3 py-1.5 rounded-lg bg-blue-50 text-[#0f4c82] hover:bg-blue-100 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-blue-50 text-[#0f4c82] hover:bg-blue-100 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
             >
               <Info className="w-3.5 h-3.5" />
-              <span>Lihat Template Naskah</span>
+              <span>Pedoman & Template Naskah</span>
             </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
-              {/* Jenis Naskah */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1.5">
-                  Jenis Naskah Dinas <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={jenisNaskah}
-                  onChange={(e) => setJenisNaskah(e.target.value as JenisNaskahDinas)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white font-medium text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
-                >
-                  {DAFTAR_JENIS_NASKAH.map((jenis) => (
-                    <option key={jenis} value={jenis}>
-                      {jenis}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Format struktur dan template disesuaikan dengan jenis naskah yang dipilih.
-                </p>
+            
+            {/* Bagian 1: Identitas dan Klasifikasi Naskah */}
+            <div className="p-4.5 rounded-2xl bg-slate-50/70 border border-slate-200/90 space-y-4">
+              <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#0f4c82]" />
+                <span>1. Klasifikasi & Sifat Naskah Dinas</span>
               </div>
 
-              {/* Unit Kerja Pengusul */}
+              {/* Sifat Naskah / Kode Surat (B / K / R) */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1.5">
-                  Unit Kerja / Tim Kerja <span className="text-red-500">*</span>
+                <label className="block font-bold text-slate-700 text-xs mb-2">
+                  Sifat Naskah Dinas (Kode Surat) <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={unitKerja}
-                  onChange={(e) => setUnitKerja(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white font-medium text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
-                >
-                  {TIM_KERJA_OPTIONS.map((tim) => (
-                    <option key={tim} value={tim}>
-                      {tim}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                  <UserCheck className="w-3.5 h-3.5 text-[#0f4c82]" />
-                  <span>
-                    Verifikator Otomatis: <strong className="text-slate-700">{verifikatorInfo.nama}</strong> ({verifikatorInfo.role.replace('VERIFIKATOR_', 'Tim ')})
-                  </span>
-                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      kodeSurat === 'B'
+                        ? 'bg-blue-50/80 border-[#0f4c82] ring-1 ring-[#0f4c82]'
+                        : 'bg-white border-slate-200 hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="kodeSurat"
+                      value="B"
+                      checked={kodeSurat === 'B'}
+                      onChange={() => setKodeSurat('B')}
+                      className="mt-0.5 text-[#0f4c82] focus:ring-[#0f4c82]"
+                    />
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">B – Biasa / Rutin</div>
+                      <div className="text-[11px] text-slate-500">
+                        Surat keluar dinas umum, undangan, pengumuman, dsb.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      kodeSurat === 'K'
+                        ? 'bg-blue-50/80 border-[#0f4c82] ring-1 ring-[#0f4c82]'
+                        : 'bg-white border-slate-200 hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="kodeSurat"
+                      value="K"
+                      checked={kodeSurat === 'K'}
+                      onChange={() => setKodeSurat('K')}
+                      className="mt-0.5 text-[#0f4c82] focus:ring-[#0f4c82]"
+                    />
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">K – Keputusan (SK)</div>
+                      <div className="text-[11px] text-slate-500">
+                        Keputusan Kepala BPS / Keputusan Penetapan resmi
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      kodeSurat === 'R'
+                        ? 'bg-blue-50/80 border-[#0f4c82] ring-1 ring-[#0f4c82]'
+                        : 'bg-white border-slate-200 hover:bg-slate-100/60'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="kodeSurat"
+                      value="R"
+                      checked={kodeSurat === 'R'}
+                      onChange={() => setKodeSurat('R')}
+                      className="mt-0.5 text-[#0f4c82] focus:ring-[#0f4c82]"
+                    />
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">R – Rahasia</div>
+                      <div className="text-[11px] text-slate-500">
+                        Dokumen berkode rahasia / terbatas khusus
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                {/* Jenis Naskah Dinas */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    Jenis Naskah Dinas <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={jenisNaskah}
+                    onChange={(e) => setJenisNaskah(e.target.value as JenisNaskahDinas)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white font-medium text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all cursor-pointer"
+                  >
+                    {DAFTAR_JENIS_NASKAH.map((jenis) => (
+                      <option key={jenis} value={jenis}>
+                        {jenis}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Kode Klasifikasi Arsip BPS */}
+                <div className="relative">
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    Kode Klasifikasi Arsip BPS <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      required
+                      value={klasifikasiArsip}
+                      onChange={(e) => setKlasifikasiArsip(e.target.value.toUpperCase())}
+                      placeholder="Contoh: VS.100, HK.010, KU.001"
+                      className="w-full h-10 px-3.5 rounded-xl border border-slate-300 font-mono text-xs sm:text-sm text-slate-800 uppercase focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKlasifSearch(!showKlasifSearch)}
+                      className="h-10 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold shrink-0 cursor-pointer transition-colors"
+                    >
+                      Cari Kode
+                    </button>
+                  </div>
+
+                  {errors.klasifikasiArsip && (
+                    <p className="text-red-600 text-[11px] mt-1 font-medium">
+                      {errors.klasifikasiArsip}
+                    </p>
+                  )}
+
+                  {/* Dropdown Pencarian Kode Klasifikasi */}
+                  {showKlasifSearch && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-xl border border-slate-200 z-30 p-2.5 text-xs">
+                      <input
+                        type="text"
+                        value={searchKlasifText}
+                        onChange={(e) => setSearchKlasifText(e.target.value)}
+                        placeholder="Ketik kata kunci klasifikasi (cth: sensus, hukum, keuangan, humas)..."
+                        className="w-full h-9 px-3 border border-slate-300 rounded-lg text-xs outline-none focus:border-[#0f4c82] focus:ring-1 focus:ring-[#0f4c82] mb-1.5"
+                      />
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {DAFTAR_KLASIFIKASI_BPS.filter(
+                          (k) =>
+                            k.kode.toLowerCase().includes(searchKlasifText.toLowerCase()) ||
+                            k.nama.toLowerCase().includes(searchKlasifText.toLowerCase())
+                        )
+                          .slice(0, 10)
+                          .map((k) => (
+                            <div
+                              key={k.kode}
+                              onClick={() => {
+                                setKlasifikasiArsip(k.kode);
+                                setShowKlasifSearch(false);
+                              }}
+                              className="p-2 hover:bg-blue-50 rounded-lg cursor-pointer flex items-center justify-between text-slate-700 transition-colors"
+                            >
+                              <span className="font-mono font-bold text-[#0f4c82]">{k.kode}</span>
+                              <span className="truncate max-w-[220px] text-slate-500 text-[11px]">
+                                {k.nama}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Perihal Naskah */}
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">
-                Perihal / Judul Naskah Dinas <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={perihal}
-                onChange={(e) => setPerihal(e.target.value)}
-                placeholder="Contoh: Undangan Rapat Evaluasi Sensus Pertanian 2026 atau Nota Dinas Permohonan Sarpras"
-                className={`w-full h-10 px-3.5 rounded-xl border text-xs sm:text-sm text-slate-800 outline-none transition-all ${
-                  errors.perihal
-                    ? 'border-red-400 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-200'
-                    : 'border-slate-300 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20'
-                }`}
-              />
-              {errors.perihal && (
-                <p className="text-red-600 text-[11px] mt-1 font-medium">{errors.perihal}</p>
-              )}
+            {/* Bagian 2: Data Konseptor & Penugasan Verifikator Otomatis */}
+            <div className="p-4.5 rounded-2xl bg-blue-50/40 border border-blue-200/80 space-y-4">
+              <div className="text-xs font-bold text-[#0f4c82] uppercase tracking-wider flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-[#0f4c82]" />
+                <span>2. Identitas Konseptor & Verifikator Terpilih</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                {/* Tim Kerja Konseptor: Read-Only Berdasarkan Akun Login */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                    <span>Tim Kerja Konseptor</span>
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Terkunci Otomatis</span>
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={unitKerja}
+                      className="w-full h-10 px-3.5 pr-10 rounded-xl border border-slate-300 bg-slate-100 text-slate-800 font-bold text-xs sm:text-sm cursor-not-allowed select-none"
+                    />
+                    <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Tim kerja terisi otomatis dari profil akun Anda ({currentUser.username}) dan tidak dapat diubah secara manual.
+                  </p>
+                </div>
+
+                {/* Verifikator Otomatis Berdasarkan Unit Kerja */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                    <span>Verifikator yang Bertugas</span>
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                      Sistem Otomatis
+                    </span>
+                  </label>
+                  <div className="p-2.5 rounded-xl border border-blue-200 bg-white flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-xs text-[#0f4c82]">{verifikatorInfo.nama}</div>
+                      <div className="text-[11px] text-slate-500">{verifikatorInfo.deskripsi}</div>
+                    </div>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Pengajuan akan langsung ditujukan ke verifikator tim kerja Anda untuk diverifikasi & diterbitkan nomor suratnya.
+                  </p>
+                </div>
+
+                {/* Nama Konseptor Pegawai */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    Nama Konseptor Pegawai <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={namaKonseptor}
+                    onChange={(e) => setNamaKonseptor(e.target.value)}
+                    placeholder="Nama lengkap penyusun naskah"
+                    className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
+                  />
+                  {errors.namaKonseptor && (
+                    <p className="text-red-600 text-[11px] mt-1 font-medium">{errors.namaKonseptor}</p>
+                  )}
+                </div>
+
+                {/* Tanggal Surat Dinas */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    Tanggal Surat Dinas <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={tanggalSurat}
+                    onChange={(e) => setTanggalSurat(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all cursor-pointer font-mono"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Tanggal resmi yang tercantum pada surat keluar.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
-              {/* Nama Konseptor */}
+            {/* Bagian 3: Konten Naskah & Tujuan */}
+            <div className="space-y-4 text-xs">
+              {/* Tujuan Surat Dinas */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1.5">
-                  Nama Konseptor Pegawai <span className="text-red-500">*</span>
+                  Tujuan Surat Dinas (Kepada Yth.) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  value={namaKonseptor}
-                  onChange={(e) => setNamaKonseptor(e.target.value)}
-                  placeholder="Nama lengkap penyusun draf"
-                  className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
+                  value={tujuan}
+                  onChange={(e) => setTujuan(e.target.value)}
+                  placeholder="Contoh: Kepala BPS Kabupaten/Kota se-Provinsi Kalimantan Barat ATAU Kepala Dinas Pertanian Prov. Kalbar"
+                  className={`w-full h-10 px-3.5 rounded-xl border text-xs sm:text-sm text-slate-800 outline-none transition-all ${
+                    errors.tujuan
+                      ? 'border-red-400 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                      : 'border-slate-300 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20'
+                  }`}
                 />
-              </div>
-
-              {/* Klasifikasi Arsip BPS */}
-              <div className="relative">
-                <label className="block font-bold text-slate-700 mb-1.5">
-                  Kode Klasifikasi Arsip <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={klasifikasiArsip}
-                    onChange={(e) => setKlasifikasiArsip(e.target.value.toUpperCase())}
-                    placeholder="Contoh: VS.100, HK.010, KU.001"
-                    className="w-full h-10 px-3.5 rounded-xl border border-slate-300 font-mono text-xs sm:text-sm text-slate-800 uppercase focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKlasifSearch(!showKlasifSearch)}
-                    className="h-10 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold shrink-0 cursor-pointer transition-colors"
-                  >
-                    Cari Kode
-                  </button>
-                </div>
-
-                {/* Dropdown pencarian kode klasifikasi */}
-                {showKlasifSearch && (
-                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-xl border border-slate-200 z-30 p-2.5 text-xs">
-                    <input
-                      type="text"
-                      value={searchKlasifText}
-                      onChange={(e) => setSearchKlasifText(e.target.value)}
-                      placeholder="Ketik nama atau kode arsip..."
-                      className="w-full h-9 px-3 border border-slate-300 rounded-lg text-xs outline-none focus:border-[#0f4c82] focus:ring-1 focus:ring-[#0f4c82] mb-1.5"
-                    />
-                    <div className="max-h-48 overflow-y-auto space-y-1">
-                      {DAFTAR_KLASIFIKASI_BPS.filter(
-                        (k) =>
-                          k.kode.toLowerCase().includes(searchKlasifText.toLowerCase()) ||
-                          k.nama.toLowerCase().includes(searchKlasifText.toLowerCase())
-                      )
-                        .slice(0, 10)
-                        .map((k) => (
-                          <div
-                            key={k.kode}
-                            onClick={() => {
-                              setKlasifikasiArsip(k.kode);
-                              setShowKlasifSearch(false);
-                            }}
-                            className="p-2 hover:bg-blue-50 rounded-lg cursor-pointer flex items-center justify-between text-slate-700 transition-colors"
-                          >
-                            <span className="font-mono font-bold text-[#0f4c82]">{k.kode}</span>
-                            <span className="truncate max-w-[220px] text-slate-500 text-[11px]">{k.nama}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
+                {errors.tujuan && (
+                  <p className="text-red-600 text-[11px] mt-1 font-medium">{errors.tujuan}</p>
                 )}
               </div>
+
+              {/* Perihal Naskah Dinas */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  Perihal / Judul Naskah Dinas <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={perihal}
+                  onChange={(e) => setPerihal(e.target.value)}
+                  placeholder="Contoh: Undangan Rapat Evaluasi Sensus Pertanian 2026 atau Permohonan Kebutuhan Sarana Prasarana"
+                  className={`w-full h-10 px-3.5 rounded-xl border text-xs sm:text-sm text-slate-800 outline-none transition-all ${
+                    errors.perihal
+                      ? 'border-red-400 bg-red-50/30 focus:border-red-500 focus:ring-2 focus:ring-red-200'
+                      : 'border-slate-300 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20'
+                  }`}
+                />
+                {errors.perihal && (
+                  <p className="text-red-600 text-[11px] mt-1 font-medium">{errors.perihal}</p>
+                )}
+              </div>
+
+              {/* Ringkasan / Urgensi Naskah */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  Ringkasan / Urgensi Naskah Dinas (Opsional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={ringkasanIsi}
+                  onChange={(e) => setRingkasanIsi(e.target.value)}
+                  placeholder="Catatan ringkas mengenai urgensi, batas waktu, atau konteks kegiatan untuk verifikator tim..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
+                />
+              </div>
             </div>
 
-            {/* Nomor Surat Keluar Terkait (Opsional) */}
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">
-                Nomor Surat Keluar dari Register (Opsional)
-              </label>
-              <select
-                value={nomorSuratDipesan}
-                onChange={(e) => setNomorSuratDipesan(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-xl border border-slate-300 bg-white font-mono text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
-              >
-                <option value="">-- Pilih jika nomor surat telah diambil sebelumnya di modul Penomoran --</option>
-                {availableNomorSurat.map((surat) => (
-                  <option key={surat.id} value={surat.nomorSuratLengkap}>
-                    {surat.nomorSuratLengkap} — {surat.perihal.slice(0, 50)}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Jika nomor surat belum diambil, nomor resmi dapat ditetapkan nanti setelah naskah disetujui.
-              </p>
+            {/* Bagian 4: Opsi Nomor Surat (Otomatis Baru / Gunakan Nomor Kosong) */}
+            <div className="p-4.5 rounded-2xl bg-amber-50/40 border border-amber-200/80 space-y-3 text-xs">
+              <div className="font-bold text-amber-900 uppercase tracking-wider flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-amber-700" />
+                  <span>3. Opsi Alokasi Nomor Surat Keluar</span>
+                </div>
+                {emptySuratList.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                    Tersedia {emptySuratList.length} Slot Kosong
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                    modePenomoran === 'baru'
+                      ? 'bg-white border-amber-500 ring-1 ring-amber-500 shadow-2xs'
+                      : 'bg-white/60 border-slate-200 hover:bg-white'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="modePenomoran"
+                    value="baru"
+                    checked={modePenomoran === 'baru'}
+                    onChange={() => {
+                      setModePenomoran('baru');
+                      setSelectedKosongNomor(null);
+                    }}
+                    className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-900">Nomor Urut Baru Otomatis (Rekomendasi)</div>
+                    <div className="text-[11px] text-slate-500">
+                      Sistem akan menerbitkan nomor urut berikutnya secara otomatis saat draf disetujui.
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                    modePenomoran === 'kosong'
+                      ? 'bg-white border-amber-500 ring-1 ring-amber-500 shadow-2xs'
+                      : 'bg-white/60 border-slate-200 hover:bg-white'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="modePenomoran"
+                    value="kosong"
+                    checked={modePenomoran === 'kosong'}
+                    onChange={() => setModePenomoran('kosong')}
+                    className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                  />
+                  <div>
+                    <div className="font-bold text-slate-900">Gunakan Slot Nomor Kosong / Cadangan</div>
+                    <div className="text-[11px] text-slate-500">
+                      Pilih dari nomor kosong yang tercipta pada aturan Senin atau pembatalan sebelumnya.
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Pemilih Slot Nomor Kosong jika Mode Kosong Aktif */}
+              {modePenomoran === 'kosong' && (
+                <div className="mt-3 p-3.5 bg-white rounded-xl border border-amber-300 space-y-2">
+                  <label className="block font-bold text-slate-800">
+                    Pilih Nomor Kosong yang Akan Diklaim <span className="text-red-500">*</span>
+                  </label>
+                  {emptySuratList.length === 0 ? (
+                    <div className="text-slate-500 text-xs italic">
+                      Saat ini tidak ada slot nomor kosong di register. Silakan gunakan opsi "Nomor Urut Baru Otomatis".
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedKosongNomor || ''}
+                      onChange={(e) => setSelectedKosongNomor(Number(e.target.value) || null)}
+                      className="w-full h-10 px-3 rounded-xl border border-amber-400 bg-white font-mono text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
+                    >
+                      <option value="">-- Pilih Nomor Kosong yang Tersedia --</option>
+                      {emptySuratList.map((item) => (
+                        <option key={item.id} value={item.nomorUrut}>
+                          Urut #{item.nomorUrut} · {item.nomorSuratLengkap} · Bulan: {item.bulan || '-'}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {errors.selectedKosongNomor && (
+                    <p className="text-red-600 text-[11px] font-medium">
+                      {errors.selectedKosongNomor}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Ringkasan Isi Naskah */}
-            <div>
+            {/* Bagian 5: Upload Berkas Draf Word (.docx) */}
+            <div className="text-xs">
               <label className="block font-bold text-slate-700 mb-1.5">
-                Ringkasan / Urgensi Naskah Dinas (Opsional)
-              </label>
-              <textarea
-                rows={3}
-                value={ringkasanIsi}
-                onChange={(e) => setRingkasanIsi(e.target.value)}
-                placeholder="Catatan ringkas mengenai urgensi, batas waktu, atau konteks kegiatan untuk verifikator..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-800 focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 outline-none transition-all"
-              />
-            </div>
-
-            {/* Upload File Draf Word (.docx) */}
-            <div>
-              <label className="block font-bold text-slate-700 mb-1.5">
-                Unggah Berkas Draf Naskah Dinas (Microsoft Word .docx / .doc) <span className="text-red-500">*</span>
+                Berkas Draf Naskah Dinas (Microsoft Word .docx / .doc) <span className="text-red-500">*</span>
               </label>
               <div
                 className={`p-6 border-2 border-dashed rounded-2xl text-center transition-all ${
@@ -846,7 +1381,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                     <span className="text-xs text-slate-500 block mt-0.5">atau tarik dan lepas berkas di sini</span>
                   </div>
                   <span className="text-[11px] text-slate-400">
-                    Batas ukuran berkas maksimal 20 MB · Wajib format Microsoft Word
+                    Batas ukuran berkas maksimal 20 MB · Format wajib Microsoft Word (.docx)
                   </span>
                 </label>
               </div>
@@ -862,7 +1397,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                     <div>
                       <div className="font-bold text-xs text-slate-900">{uploadedFile.name}</div>
                       <div className="text-[10px] text-slate-500 font-mono-tabular">
-                        {(uploadedFile.size / 1024).toFixed(1)} KB · Siap Diajukan
+                        {(uploadedFile.size / 1024).toFixed(1)} KB · Siap Diajukan ke Verifikator
                       </div>
                     </div>
                   </div>
@@ -878,7 +1413,11 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
             </div>
 
             {/* Form Action Buttons */}
-            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3">
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                Verifikator Penerima: <strong className="text-[#0f4c82]">{verifikatorInfo.nama}</strong> ({unitKerja})
+              </div>
+
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -891,7 +1430,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                   </>
                 ) : (
                   <>
-                    <Upload className="w-4 h-4" />
+                    <Send className="w-4 h-4" />
                     <span>Kirim Draf ke Verifikator ({verifikatorInfo.nama})</span>
                   </>
                 )}
@@ -911,6 +1450,13 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
             setSelectedTimelineNaskah(null);
             if (onOpenRevisiModal) onOpenRevisiModal(n);
           }}
+          onOpenUnggahFinalModal={(n) => {
+            setSelectedTimelineNaskah(null);
+            if (onOpenUnggahFinalModal) onOpenUnggahFinalModal(n);
+          }}
+          onTerbitkanNomorSurat={onTerbitkanNomorSurat}
+          onVerifikasiKeputusan={onVerifikasiKeputusan}
+          onBukaKembaliNaskah={onBukaKembaliNaskah}
           onToast={onToast}
         />
       )}

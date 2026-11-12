@@ -26,6 +26,15 @@ export const DAFTAR_KLASIFIKASI_BPS: KlasifikasiItem[] = [
 ];
 
 export const TIM_KERJA_OPTIONS = [
+  'Tim SDM',
+  'Tim Keuangan',
+  'Tim Perencanaan',
+  'Tim Neraca',
+  'Tim Distribusi',
+  'Tim Sosial',
+  'Tim Produksi',
+  'Tim IPDS',
+  'Tim Umum & Humas',
   'SDM dan Hukum',
   'Sekretaris',
   'Tim Umum',

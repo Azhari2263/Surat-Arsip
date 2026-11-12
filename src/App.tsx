@@ -31,6 +31,8 @@ import {
   updateNaskahMetadata,
   updateArsipMetadata,
   deleteArsipItem,
+  terbitkanNomorSuratNaskah,
+  bukaKembaliNaskahAdmin,
 } from './utils/naskahStorage';
 import {
   getStoredUserList,
@@ -116,8 +118,8 @@ export default function App() {
   // Active Navigation Tab
   const [activeTab, setActiveTab] = useState<MainNavTab>('dashboard');
 
-  // Penomoran sub-tabs (when in 'penomoran' tab)
-  const [penomoranSubTab, setPenomoranSubTab] = useState<'form' | 'register' | 'kosong' | 'stats'>('form');
+  // Penomoran sub-tabs (Buku Register Keluar26, Nomor Kosong, Statistik)
+  const [penomoranSubTab, setPenomoranSubTab] = useState<'register' | 'kosong' | 'stats'>('register');
   const [lastSubmittedSurat, setLastSubmittedSurat] = useState<SubmitResult | null>(null);
   const [preselectedKosong, setPreselectedKosong] = useState<SuratKeluar | null>(null);
 
@@ -230,18 +232,34 @@ export default function App() {
   const pendingVerifCount = useMemo(() => {
     if (!currentUser) return 0;
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ARSIPARIS') {
-      return naskahList.filter((n) => n.status === 'DRAF_DIAJUKAN').length;
+      return naskahList.filter(
+        (n) =>
+          n.status === 'MENUNGGU_VERIFIKASI' ||
+          n.status === 'DRAF_DIAJUKAN' ||
+          n.status === 'SEDANG_DIPERIKSA' ||
+          n.status === 'MENUNGGU_PENOMORAN'
+      ).length;
     }
     if (currentUser.role === 'KONSEPTOR') {
-      return naskahList.filter((n) => n.status === 'PERLU_PERBAIKAN').length;
+      return naskahList.filter(
+        (n) =>
+          n.namaKonseptor.toLowerCase() === currentUser.nama.toLowerCase() &&
+          (n.status === 'PERLU_PERBAIKAN' ||
+            n.status === 'NOMOR_DITERBITKAN' ||
+            n.status === 'MENUNGGU_DOKUMEN_FINAL')
+      ).length;
     }
     return naskahList.filter(
-      (n) => n.roleVerifikatorDitunjuk === currentUser.role && n.status === 'DRAF_DIAJUKAN'
+      (n) =>
+        n.roleVerifikatorDitunjuk === currentUser.role &&
+        (n.status === 'MENUNGGU_VERIFIKASI' || n.status === 'DRAF_DIAJUKAN')
     ).length;
   }, [naskahList, currentUser]);
 
   const totalArsipCount = useMemo(() => {
-    return naskahList.filter((n) => n.status === 'FINAL_DIARSIPKAN').length;
+    return naskahList.filter(
+      (n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN'
+    ).length;
   }, [naskahList]);
 
   // ══════════════════════════════════════════════════════════════════
@@ -267,12 +285,12 @@ export default function App() {
 
   const handleVerifikasiKeputusan = (
     naskahId: string,
-    keputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN',
+    keputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN' | 'DITOLAK',
     catatan: string,
     checklist: ChecklistVerifikasi
   ) => {
     if (!currentUser) return;
-    const { updatedList } = updateVerifikasiNaskah(
+    const { updatedList, updatedNaskah } = updateVerifikasiNaskah(
       naskahId,
       keputusan,
       {
@@ -285,9 +303,122 @@ export default function App() {
     );
     setNaskahList(updatedList);
 
-    const changedItem = updatedList.find((n) => n.id === naskahId);
+    const changedItem = updatedNaskah || updatedList.find((n) => n.id === naskahId);
     if (changedItem && config.appsScriptUrl) {
       sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
+    }
+
+    if (keputusan === 'DISETUJUI') {
+      showToast(`✔ Draf ${changedItem?.nomorRegistrasi || ''} telah disetujui dan diteruskan ke permintaan nomor surat!`);
+    } else if (keputusan === 'PERLU_PERBAIKAN') {
+      showToast(`⚠ Draf ${changedItem?.nomorRegistrasi || ''} dikembalikan kepada konseptor untuk perbaikan.`);
+    } else {
+      showToast(`✕ Pengajuan draf ${changedItem?.nomorRegistrasi || ''} ditolak.`);
+    }
+  };
+
+  const handleTerbitkanNomorSurat = (naskah: NaskahDinas, customKodeSurat?: 'B' | 'K' | 'R') => {
+    if (!currentUser) return;
+
+    // Kewenangan penerbitan nomor: Admin dan Verifikator yang bertugas
+    const isAssignedVerifier =
+      currentUser.role === naskah.roleVerifikatorDitunjuk ||
+      currentUser.nama.toLowerCase() === naskah.verifikatorDitunjuk.toLowerCase();
+
+    if (currentUser.role !== 'ADMIN' && !isAssignedVerifier) {
+      showToast('✕ Hanya Administrator dan Verifikator yang bertugas yang berwenang menerbitkan nomor surat.');
+      return;
+    }
+
+    if (naskah.nomorSuratDipesan && naskah.status !== 'MENUNGGU_PENOMORAN') {
+      showToast(`⚠ Naskah ini sudah memiliki nomor surat: ${naskah.nomorSuratDipesan}`);
+      return;
+    }
+
+    const now = new Date();
+    const tglHariIni = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+    // Gunakan pilihan nomor kosong jika konseptor memilih slot nomor kosong
+    const isKosongMode = !!(naskah.nomorUrutKosongDipilih && naskah.nomorUrutKosongDipilih > 0);
+
+    const payload: SubmitSuratPayload = {
+      kodeSurat: customKodeSurat || naskah.kodeSurat || 'B',
+      kodeKlasifikasi: naskah.klasifikasiArsip || 'VS.100',
+      perihal: naskah.perihal,
+      tujuan: naskah.tujuan || 'Kepala BPS Kabupaten/Kota se-Provinsi Kalimantan Barat',
+      tanggalSurat: naskah.tanggalSurat || tglHariIni,
+      namaPegawai: naskah.namaKonseptor,
+      timKerja: naskah.unitKerja,
+      isKosongMode: isKosongMode,
+      nomorUrutKosong: isKosongMode ? naskah.nomorUrutKosongDipilih : null,
+    };
+
+    const { updatedList: newSuratList, result } = processSubmitSurat(
+      payload,
+      config,
+      suratList,
+      false
+    );
+
+    if (result.success && result.data) {
+      setSuratList(newSuratList);
+      saveStoredSuratList(newSuratList);
+
+      try {
+        const { updatedList: newNaskahList, updatedNaskah } = terbitkanNomorSuratNaskah(
+          naskah.id,
+          result.data.nomorSuratLengkap,
+          result.data.id,
+          result.data.nomorUrut,
+          currentUser.nama,
+          currentUser.role,
+          naskahList
+        );
+
+        setNaskahList(newNaskahList);
+        saveStoredNaskahList(newNaskahList);
+
+        showToast(
+          `✔ Nomor surat #${result.data.nomorUrut} (${result.data.nomorSuratLengkap}) berhasil diterbitkan dan terhubung dengan ${naskah.nomorRegistrasi}!`
+        );
+
+        // Background sync to Google Spreadsheet
+        if (config.appsScriptUrl) {
+          sendAppsScriptAction('submitSurat', result.data, config).catch(() => {});
+          if (updatedNaskah) {
+            sendAppsScriptAction('saveNaskah', updatedNaskah, config).catch(() => {});
+          }
+        }
+      } catch (err: any) {
+        showToast(`✕ Gagal menerbitkan nomor: ${err.message}`);
+      }
+    } else {
+      showToast(`✕ Gagal membuat nomor surat: ${result.error || 'Terjadi kesalahan'}`);
+    }
+  };
+
+  const handleBukaKembaliNaskah = (naskahId: string, alasan: string) => {
+    if (!currentUser) return;
+    if (currentUser.role !== 'ADMIN') {
+      showToast('✕ Hanya Administrator yang berwenang membuka kembali pengajuan.');
+      return;
+    }
+
+    try {
+      const { updatedList, updatedNaskah } = bukaKembaliNaskahAdmin(
+        naskahId,
+        currentUser.nama,
+        alasan,
+        naskahList
+      );
+      setNaskahList(updatedList);
+      saveStoredNaskahList(updatedList);
+      showToast(`✔ Pengajuan ${updatedNaskah?.nomorRegistrasi || ''} berhasil dibuka kembali oleh Admin.`);
+      if (updatedNaskah && config.appsScriptUrl) {
+        sendAppsScriptAction('saveNaskah', updatedNaskah, config).catch(() => {});
+      }
+    } catch (err: any) {
+      showToast(`✕ Gagal membuka kembali: ${err.message}`);
     }
   };
 
@@ -313,7 +444,12 @@ export default function App() {
   };
 
   const handleSubmitFinal = (naskahId: string, dokumenFinal: DokumenFinal) => {
-    const { updatedList } = arsipkanNaskahFinal(naskahId, dokumenFinal, naskahList);
+    const { updatedList } = arsipkanNaskahFinal(
+      naskahId,
+      dokumenFinal,
+      naskahList,
+      currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
+    );
     setNaskahList(updatedList);
     setActiveTab('arsip');
 
@@ -500,7 +636,7 @@ export default function App() {
       setSuratList(updatedList);
       setLastSubmittedSurat(result);
       setPreselectedKosong(null);
-      setPenomoranSubTab('form');
+      setPenomoranSubTab('register');
       showToast(`✔ Nomor surat ${result.data.nomorSuratLengkap} berhasil diterbitkan!`);
 
       // Sync to Google Spreadsheet Keluar26
@@ -520,9 +656,8 @@ export default function App() {
   const handleClaimKosong = (item: SuratKeluar) => {
     setPreselectedKosong(item);
     setLastSubmittedSurat(null);
-    setActiveTab('penomoran');
-    setPenomoranSubTab('form');
-    showToast(`✔ Memilih nomor urut #${item.nomorUrut} untuk diisi`);
+    setActiveTab('pengajuan');
+    showToast(`✔ Memilih slot nomor kosong #${item.nomorUrut} (${item.nomorSuratLengkap}) untuk draf pengajuan`);
   };
 
   const handleSaveConfig = (newConfig: AppConfig) => {
@@ -648,9 +783,15 @@ export default function App() {
             currentUser={currentUser}
             suratList={suratList}
             naskahList={naskahList}
+            preselectedKosong={preselectedKosong}
+            onClearPreselectedKosong={() => setPreselectedKosong(null)}
             onSubmitDraf={handlePengajuanDraf}
             onNavigateToPedoman={() => setActiveTab('pedoman')}
             onOpenRevisiModal={(naskah) => setSelectedForRevisi(naskah)}
+            onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
+            onTerbitkanNomorSurat={handleTerbitkanNomorSurat}
+            onVerifikasiKeputusan={handleVerifikasiKeputusan}
+            onBukaKembaliNaskah={handleBukaKembaliNaskah}
             onToast={showToast}
           />
         )}
@@ -661,6 +802,8 @@ export default function App() {
             naskahList={naskahList}
             currentUser={currentUser}
             onVerifikasiKeputusan={handleVerifikasiKeputusan}
+            onTerbitkanNomorSurat={handleTerbitkanNomorSurat}
+            onBukaKembaliNaskah={handleBukaKembaliNaskah}
             onOpenRevisiModal={(naskah) => setSelectedForRevisi(naskah)}
             onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
             onUpdateNaskah={handleUpdateNaskah}
@@ -678,6 +821,8 @@ export default function App() {
             currentUser={currentUser}
             onUpdateArsip={handleUpdateArsip}
             onDeleteArsip={handleDeleteArsip}
+            onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
+            onBukaKembaliNaskah={handleBukaKembaliNaskah}
             onToast={showToast}
           />
         )}
@@ -694,18 +839,6 @@ export default function App() {
             {/* Sub-Navigation for Penomoran Module */}
             <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-                <button
-                  onClick={() => setPenomoranSubTab('form')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                    penomoranSubTab === 'form'
-                      ? 'bg-[#0f4c82] text-white shadow-xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Ambil Nomor Surat Baru</span>
-                </button>
-
                 <button
                   onClick={() => setPenomoranSubTab('register')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
@@ -764,29 +897,6 @@ export default function App() {
             />
 
             {/* Penomoran Sub-Views */}
-            {penomoranSubTab === 'form' && (
-              <div className="max-w-3xl mx-auto">
-                {lastSubmittedSurat?.data ? (
-                  <ResultCard
-                    surat={lastSubmittedSurat.data}
-                    wasMondayPlaceholderCreated={lastSubmittedSurat.wasMondayPlaceholderCreated}
-                    mondayPlaceholderNomor={lastSubmittedSurat.mondayPlaceholderNomor}
-                    onReset={handleResetPenomoran}
-                    onOpenPrint={() => setShowPrintModal(true)}
-                    onToast={showToast}
-                  />
-                ) : (
-                  <LetterForm
-                    onSubmit={handleSubmitSurat}
-                    emptyList={emptyList}
-                    preselectedKosong={preselectedKosong}
-                    onClearPreselectedKosong={() => setPreselectedKosong(null)}
-                    nextNomorBaru={nextNomorBaru}
-                  />
-                )}
-              </div>
-            )}
-
             {penomoranSubTab === 'register' && (
               <RegisterTable
                 suratList={suratList}
@@ -804,7 +914,7 @@ export default function App() {
                 onNavigateToForm={() => {
                   setLastSubmittedSurat(null);
                   setPreselectedKosong(null);
-                  setPenomoranSubTab('form');
+                  setActiveTab('pengajuan');
                 }}
               />
             )}

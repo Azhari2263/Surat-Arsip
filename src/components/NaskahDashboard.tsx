@@ -48,26 +48,38 @@ export const NaskahDashboard: React.FC<NaskahDashboardProps> = ({
   const [selectedTimelineNaskah, setSelectedTimelineNaskah] = useState<NaskahDinas | null>(null);
   const [isAlurOpen, setIsAlurOpen] = useState(false);
 
-  const countDiajukan = naskahList.filter((n) => n.status === 'DRAF_DIAJUKAN').length;
+  const countDiajukan = naskahList.filter(
+    (n) => n.status === 'MENUNGGU_VERIFIKASI' || n.status === 'DRAF_DIAJUKAN' || n.status === 'SEDANG_DIPERIKSA'
+  ).length;
   const countPerbaikan = naskahList.filter((n) => n.status === 'PERLU_PERBAIKAN').length;
-  const countTerverifikasi = naskahList.filter((n) => n.status === 'TERVERIFIKASI').length;
-  const countFinal = naskahList.filter((n) => n.status === 'FINAL_DIARSIPKAN').length;
+  const countTerverifikasi = naskahList.filter(
+    (n) => n.status === 'MENUNGGU_PENOMORAN' || n.status === 'NOMOR_DITERBITKAN' || n.status === 'TERVERIFIKASI'
+  ).length;
+  const countFinal = naskahList.filter((n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN').length;
   const countTotal = naskahList.length;
 
   // Pending for current user role
   const pendingForCurrentUser = naskahList.filter((n) => {
     if (currentUser.role === 'KONSEPTOR') {
       return (
-        n.status === 'PERLU_PERBAIKAN' &&
+        (n.status === 'PERLU_PERBAIKAN' || n.status === 'NOMOR_DITERBITKAN' || n.status === 'MENUNGGU_DOKUMEN_FINAL') &&
         (n.namaKonseptor.toLowerCase() === currentUser.nama.toLowerCase() ||
           n.unitKerja.toLowerCase() === currentUser.unitKerja.toLowerCase())
       );
     }
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ARSIPARIS') {
-      return n.status === 'DRAF_DIAJUKAN' || n.status === 'TERVERIFIKASI';
+      return (
+        n.status === 'MENUNGGU_VERIFIKASI' ||
+        n.status === 'DRAF_DIAJUKAN' ||
+        n.status === 'MENUNGGU_PENOMORAN' ||
+        n.status === 'TERVERIFIKASI'
+      );
     }
     // Specific verifier
-    return n.roleVerifikatorDitunjuk === currentUser.role && n.status === 'DRAF_DIAJUKAN';
+    return (
+      n.roleVerifikatorDitunjuk === currentUser.role &&
+      (n.status === 'MENUNGGU_VERIFIKASI' || n.status === 'DRAF_DIAJUKAN')
+    );
   });
 
   // Konseptor submissions
@@ -593,21 +605,29 @@ export const NaskahDashboard: React.FC<NaskahDashboardProps> = ({
                   <div className="flex items-center gap-3 shrink-0">
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                        isArchived
-                          ? 'bg-slate-900 text-emerald-400 border-slate-800'
-                          : isVerified
+                        item.status === 'SELESAI_ARSIP' || item.status === 'FINAL_DIARSIPKAN'
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : isNeedRevision
+                          : item.status === 'NOMOR_DITERBITKAN' || item.status === 'MENUNGGU_DOKUMEN_FINAL'
+                          ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                          : item.status === 'MENUNGGU_PENOMORAN' || item.status === 'TERVERIFIKASI'
+                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                          : item.status === 'PERLU_PERBAIKAN'
                           ? 'bg-rose-50 text-rose-800 border-rose-200'
+                          : item.status === 'DITOLAK'
+                          ? 'bg-red-50 text-red-800 border-red-200'
                           : 'bg-blue-50 text-blue-800 border-blue-200'
                       }`}
                     >
-                      {isArchived
-                        ? '✔ Final Diarsipkan'
-                        : isVerified
-                        ? '✔ Terverifikasi (Siap TTD)'
-                        : isNeedRevision
+                      {item.status === 'SELESAI_ARSIP' || item.status === 'FINAL_DIARSIPKAN'
+                        ? '✔ Selesai – Arsip Sah'
+                        : item.status === 'NOMOR_DITERBITKAN' || item.status === 'MENUNGGU_DOKUMEN_FINAL'
+                        ? '✔ No. Terbit (Siap Final)'
+                        : item.status === 'MENUNGGU_PENOMORAN' || item.status === 'TERVERIFIKASI'
+                        ? 'Menunggu Nomor Surat'
+                        : item.status === 'PERLU_PERBAIKAN'
                         ? '⚠ Perlu Perbaikan'
+                        : item.status === 'DITOLAK'
+                        ? '✕ Ditolak'
                         : 'Menunggu Verifikasi'}
                     </span>
                     <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#0f4c82] group-hover:translate-x-0.5 transition-all" />

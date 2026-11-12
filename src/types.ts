@@ -83,11 +83,20 @@ export type JenisNaskahDinas =
   | 'Surat Edaran';
 
 export type StatusNaskah =
-  | 'DRAF_DIAJUKAN' // Menunggu Verifikasi
-  | 'SEDANG_DIPERIKSA' // Dalam Proses Pemeriksaan
-  | 'PERLU_PERBAIKAN' // Dikembalikan untuk Revisi
-  | 'TERVERIFIKASI' // Draf Disetujui (Belum Sah - Menunggu TTD/TTE)
-  | 'FINAL_DIARSIPKAN'; // Naskah Dinas Sah Ditandatangani & Masuk Arsip Digital
+  // Standarisasi Status Resmi Terpadu
+  | 'DRAFT' // Konseptor: Pengajuan masih disusun dan belum dikirim
+  | 'MENUNGGU_VERIFIKASI' // Verifikator: Draf menunggu pemeriksaan
+  | 'PERLU_PERBAIKAN' // Konseptor: Draf dikembalikan untuk direvisi
+  | 'DITOLAK' // Verifikator: Pengajuan dihentikan dengan alasan penolakan
+  | 'MENUNGGU_PENOMORAN' // Admin/Petugas: Draf lolos verifikasi, menunggu penerbitan nomor surat
+  | 'NOMOR_DITERBITKAN' // Admin/Petugas: Nomor surat telah diberikan & terhubung ke register
+  | 'MENUNGGU_DOKUMEN_FINAL' // Konseptor: Menunggu surat yang telah ditandatangani
+  | 'SELESAI_ARSIP' // Sistem: Dokumen final berhasil diarsipkan
+  // Kompatibilitas Data Lama
+  | 'DRAF_DIAJUKAN'
+  | 'SEDANG_DIPERIKSA'
+  | 'TERVERIFIKASI'
+  | 'FINAL_DIARSIPKAN';
 
 export type TipeTandaTangan = 'TTE' | 'KONVENSIONAL';
 
@@ -102,11 +111,11 @@ export type TabKey =
 
 export type UserRole =
   | 'KONSEPTOR'
-  | 'VERIFIKATOR_YUN' // Tim SDM dan Keuangan
-  | 'VERIFIKATOR_AMANDA' // Tim Perencanaan dan Neraca
-  | 'VERIFIKATOR_RANIA' // Tim Distribusi dan Sosial
-  | 'VERIFIKATOR_VIVI' // Tim Produksi
-  | 'VERIFIKATOR_AGUS' // Tim IPDS, Tim Umum dan Humas
+  | 'VERIFIKATOR_YUN' // Tim SDM dan Keuangan (M. Yun Imran, S.E.)
+  | 'VERIFIKATOR_AMANDA' // Tim Perencanaan dan Neraca (Amanda Putri, A.Md.)
+  | 'VERIFIKATOR_RANIA' // Tim Distribusi dan Sosial (Rania Naila Husna, A.Md.A.B)
+  | 'VERIFIKATOR_VIVI' // Tim Produksi (Alfiana Ayuni, A.Md.)
+  | 'VERIFIKATOR_AGUS' // Tim IPDS dan Tim Umum & Humas (Agustinus Supriadi, S.M.)
   | 'ARSIPARIS' // Aspek Kearsipan & Tata Naskah
   | 'ADMIN' // Administrator TU
   | 'VIEWER'; // Pengamat / Tamu (Read-Only)
@@ -133,13 +142,24 @@ export interface ChecklistVerifikasi {
   kepatuhanPedomanHukum: boolean;
 }
 
+export interface LogAktivitasNaskah {
+  id: string;
+  waktu: string;
+  namaPengguna: string;
+  rolePengguna: UserRole | string;
+  statusSebelumnya: string;
+  statusTerbaru: string;
+  keterangan: string;
+  catatan?: string;
+}
+
 export interface CatatanVerifikasi {
   id: string;
   waktu: string;
   namaVerifikator: string;
   roleVerifikator: UserRole;
-  statusKeputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN' | 'CATATAN_PEMERIKSAAN';
-  keputusan?: 'DISETUJUI' | 'PERLU_PERBAIKAN';
+  statusKeputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN' | 'DITOLAK' | 'CATATAN_PEMERIKSAAN';
+  keputusan?: 'DISETUJUI' | 'PERLU_PERBAIKAN' | 'DITOLAK';
   catatan: string;
   checklist: ChecklistVerifikasi;
   fileCatatanRevisi?: {
@@ -177,16 +197,24 @@ export interface DokumenFinal {
 export interface NaskahDinas {
   id: string;
   nomorRegistrasi: string; // e.g. ND-2026-001
-  nomorSuratDipesan?: string; // dari sistem penomoran BPS
+  nomorSuratDipesan?: string; // dari sistem penomoran BPS (e.g. B-368/6100/VS.100/2026)
+  suratId?: string; // id surat terkait di database SuratKeluar
+  nomorUrutSurat?: number; // nomor urut register
+  kodeSurat?: KodeSuratType; // Sifat naskah: 'B' (Biasa) | 'K' (Keputusan) | 'R' (Rahasia)
+  tanggalSurat?: string; // Tanggal surat dinas (dd/MM/yyyy)
+  nomorUrutKosongDipilih?: number; // Nomor urut kosong yang dipilih jika klaim slot nomor kosong
   jenisNaskah: JenisNaskahDinas;
   perihal: string;
+  tujuan?: string; // Tujuan surat dinas (Kepada Yth.)
   unitKerja: string;
   namaKonseptor: string;
   tanggalPengajuan: string; // dd/MM/yyyy
   status: StatusNaskah;
-  verifikatorDitunjuk: string; // Nama Verifikator (Yun, Amanda, Rania, Vivi, Agus, Arsiparis)
+  verifikatorDitunjuk: string; // Nama Verifikator resmi
   roleVerifikatorDitunjuk: UserRole;
   klasifikasiArsip: string;
+  alasanPenolakan?: string;
+  isReopenedByAdmin?: boolean;
   drafFile: {
     name: string;
     size: number;
@@ -195,6 +223,7 @@ export interface NaskahDinas {
   };
   riwayatVersi: VersiDokumen[];
   riwayatVerifikasi: CatatanVerifikasi[];
+  riwayatAktivitas?: LogAktivitasNaskah[];
   dokumenFinal?: DokumenFinal;
   waktuUpdate: string;
   ringkasanIsi?: string;

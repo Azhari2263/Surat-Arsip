@@ -35,14 +35,14 @@ interface UserManagementViewProps {
 }
 
 const AVAILABLE_ROLES: { role: UserRole; label: string; desc: string; defaultUnit: string }[] = [
-  { role: 'ADMIN', label: 'Administrator Tata Usaha', desc: 'Akses penuh seluruh modul & pengelolaan pengguna', defaultUnit: 'Pimpinan & TU Kepala' },
+  { role: 'ADMIN', label: 'Administrator Tata Usaha', desc: 'Akses penuh seluruh modul, penerbitan nomor & pengelolaan pengguna', defaultUnit: 'Pimpinan & TU Kepala' },
   { role: 'ARSIPARIS', label: 'Arsiparis', desc: 'Verifikasi tata kearsipan, persetujuan akhir & arsip', defaultUnit: 'Tata Usaha / Kearsipan' },
-  { role: 'KONSEPTOR', label: 'Konseptor Naskah', desc: 'Pengajuan draf naskah dinas & permohonan nomor', defaultUnit: 'Sosial' },
-  { role: 'VERIFIKATOR_YUN', label: 'Verifikator Yun (SDM & Keuangan)', desc: 'Pemeriksaan naskah tim SDM dan Keuangan', defaultUnit: 'SDM dan Keuangan' },
-  { role: 'VERIFIKATOR_AMANDA', label: 'Verifikator Amanda (Perencanaan & Neraca)', desc: 'Pemeriksaan naskah tim Perencanaan & Neraca', defaultUnit: 'Neraca Wilayah' },
-  { role: 'VERIFIKATOR_RANIA', label: 'Verifikator Rania (Distribusi & Sosial)', desc: 'Pemeriksaan naskah tim Distribusi & Sosial', defaultUnit: 'Statistik Distribusi' },
-  { role: 'VERIFIKATOR_VIVI', label: 'Verifikator Vivi (Produksi)', desc: 'Pemeriksaan naskah tim Produksi', defaultUnit: 'Statistik Produksi' },
-  { role: 'VERIFIKATOR_AGUS', label: 'Verifikator Agus (IPDS & Umum/Humas)', desc: 'Pemeriksaan naskah tim IPDS & Umum/Humas', defaultUnit: 'IPDS dan Tim Umum' },
+  { role: 'KONSEPTOR', label: 'Konseptor Pegawai', desc: 'Penyusunan draf naskah dinas, revisi & unggah dokumen final', defaultUnit: 'Tim Sosial' },
+  { role: 'VERIFIKATOR_YUN', label: 'Verifikator M. Yun Imran, S.E. (SDM & Keuangan)', desc: 'Pemeriksaan draf naskah Tim SDM dan Tim Keuangan', defaultUnit: 'Tim SDM' },
+  { role: 'VERIFIKATOR_AMANDA', label: 'Verifikator Amanda Putri, A.Md. (Perencanaan & Neraca)', desc: 'Pemeriksaan draf naskah Tim Perencanaan dan Tim Neraca', defaultUnit: 'Tim Neraca' },
+  { role: 'VERIFIKATOR_RANIA', label: 'Verifikator Rania Naila Husna, A.Md.A.B (Distribusi & Sosial)', desc: 'Pemeriksaan draf naskah Tim Distribusi dan Tim Sosial', defaultUnit: 'Tim Distribusi' },
+  { role: 'VERIFIKATOR_VIVI', label: 'Verifikator Alfiana Ayuni, A.Md. (Produksi)', desc: 'Pemeriksaan draf naskah Tim Produksi', defaultUnit: 'Tim Produksi' },
+  { role: 'VERIFIKATOR_AGUS', label: 'Verifikator Agustinus Supriadi, S.M. (IPDS & Umum/Humas)', desc: 'Pemeriksaan draf naskah Tim IPDS dan Tim Umum & Humas', defaultUnit: 'Tim IPDS' },
   { role: 'VIEWER', label: 'Viewer / Tamu (Read-Only)', desc: 'Hanya melihat register arsip dan pedoman', defaultUnit: 'Pengawasan / Tamu' },
 ];
 

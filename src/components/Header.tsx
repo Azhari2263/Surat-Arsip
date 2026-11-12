@@ -93,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
                 PENGELOLAAN NASKAH DINAS & ARSIP DIGITAL
               </h1>
               <p className="text-[11px] text-blue-100/90 font-medium mt-0.5">
-                Sistem Tata Kelola Naskah Dinas, Verifikasi Mutu, & Penomoran Terpadu (Unit Kerja 6100)
+                Sistem Tata Kelola Naskah Dinas, Verifikasi, & Arsip Terpadu
               </p>
             </div>
           </div>
