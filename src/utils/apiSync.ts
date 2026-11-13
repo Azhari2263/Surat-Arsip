@@ -1,6 +1,8 @@
 import {
   AppConfig,
+  ArsipDigitalRecord,
   DokumenFinal,
+  DriveArchiveFile,
   NaskahDinas,
   SuratKeluar,
   UserProfile,
@@ -8,16 +10,16 @@ import {
   PengaturanItemSpreadsheet,
   RiwayatPenghapusanAudit,
 } from '../types';
-import { formatTanggalIndo, formatTanggalWaktuIndo } from './storage';
+import { formatTanggalIndo, formatTanggalWaktuIndo, isValidSuratRow } from './storage';
 
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
  * @fileoverview Google Apps Script Backend - BPS Provinsi Kalimantan Barat
  * Terintegrasi penuh untuk Sistem Pengelolaan Naskah Dinas, Arsip Digital, & Permintaan Nomor Surat Keluar
- * Unit Kerja: 61000 | Nomor Baru Mulai Dari: 367
- * Spreadsheet ID: 1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg (atau 1LJGxOzDjvnBjzT9ZHYjAGtMgdIBXPCnh0bAd8UTLC5E)
+ * Unit Kerja: 6100 | Nomor Baru Mulai Dari: 367
+ * Spreadsheet ID: 1OPINK5xwi2oFGlZW3GvZi_RuKg18weiDJj53IPDSkXw
  */
 
-const SPREADSHEET_ID = "1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg";
+const SPREADSHEET_ID = "1OPINK5xwi2oFGlZW3GvZi_RuKg18weiDJj53IPDSkXw";
 const SHEET_NAME = "Keluar26";
 const SHEET_KELUAR = "Keluar26";
 const SHEET_NASKAH = "NaskahDinas";
@@ -26,7 +28,7 @@ const SHEET_USERS = "Pengguna";
 const SHEET_CONFIG = "Pengaturan";
 const SHEET_LOG = "LogAktivitas";
 const NOMOR_BARU_MULAI_DARI = 367;
-const KODE_UNIT = "61000";
+const KODE_UNIT = "6100";
 
 /**
  * Mendapatkan referensi Spreadsheet aktif
@@ -69,6 +71,12 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
   
+  if (action === "getDriveFiles") {
+    const folderId = (e && e.parameter && e.parameter.rootFolderId) || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
+    return ContentService.createTextOutput(JSON.stringify(getDriveArchiveFiles(folderId)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === "setupDatabase") {
     const res = setupDatabase(targetSsId);
     return ContentService.createTextOutput(JSON.stringify(res))
@@ -124,6 +132,12 @@ function doPost(e) {
 
     if (action === "getLogs" || action === "getActivityLogs") {
       const res = getActivityLogs(targetSsId);
+      return ContentService.createTextOutput(JSON.stringify(res))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getDriveFiles") {
+      const res = getDriveArchiveFiles(payload.rootFolderId || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S");
       return ContentService.createTextOutput(JSON.stringify(res))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -922,6 +936,34 @@ function recordActivityLog(data, customSs) {
       sheet = ss.getSheetByName(SHEET_LOG);
     }
 
+    const aktivitas = String(data.aktivitas || data.tipe || "AKTIVITAS");
+    const pengguna = String(data.pengguna || data.aktor || "Sistem");
+    const role = String(data.role || data.roleAktor || "-");
+    const nomorRegistrasi = String(data.nomorRegistrasi || "-");
+    const nomorSurat = String(data.nomorSurat || "-");
+    const keterangan = String(data.keterangan || data.pesan || "-");
+    const statusDrive = String(data.statusDrive || "-");
+
+    // Cegah duplikasi log identik dalam rentang 10 detik
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const checkCount = Math.min(5, lastRow - 1);
+      const recentRows = sheet.getRange(lastRow - checkCount + 1, 1, checkCount, 8).getValues();
+      const nowMs = Date.now();
+      for (let i = 0; i < recentRows.length; i++) {
+        const prevId = String(recentRows[i][0] || "");
+        const prevAkt = String(recentRows[i][2] || "");
+        const prevUser = String(recentRows[i][3] || "");
+        const prevReg = String(recentRows[i][5] || "");
+        const prevKet = String(recentRows[i][7] || "");
+        const tsMatch = prevId.match(/log-(\d+)/);
+        const prevMs = tsMatch ? Number(tsMatch[1]) : 0;
+        if (prevMs > 0 && nowMs - prevMs < 10000 && prevAkt === aktivitas && prevUser === pengguna && prevReg === nomorRegistrasi && prevKet === keterangan) {
+          return { success: true, logId: prevId, deduplicated: true };
+        }
+      }
+    }
+
     const tz = Session.getScriptTimeZone() || "GMT+7";
     const now = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm:ss");
     const logId = "log-" + Date.now();
@@ -929,13 +971,13 @@ function recordActivityLog(data, customSs) {
     const rowData = [
       logId,
       now,
-      String(data.aktivitas || data.tipe || "AKTIVITAS"),
-      String(data.pengguna || data.aktor || "Sistem"),
-      String(data.role || data.roleAktor || "-"),
-      String(data.nomorRegistrasi || "-"),
-      String(data.nomorSurat || "-"),
-      String(data.keterangan || data.pesan || "-"),
-      String(data.statusDrive || "-")
+      aktivitas,
+      pengguna,
+      role,
+      nomorRegistrasi,
+      nomorSurat,
+      keterangan,
+      statusDrive
     ];
 
     sheet.appendRow(rowData);
@@ -1034,6 +1076,57 @@ function handleDeleteDriveFiles(data) {
 /**
  * Mengambil Seluruh Data dari Spreadsheet
  */
+function getDriveArchiveFiles(rootFolderId) {
+  try {
+    const rootId = rootFolderId || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
+    const rootFolder = DriveApp.getFolderById(rootId);
+    const results = [];
+
+    function scanFolder(folder, pathParts) {
+      const folderName = folder.getName();
+      const lowerName = String(folderName || "").toLowerCase();
+      if (lowerName === "arsip") {
+        const files = folder.getFiles();
+        while (files.hasNext()) {
+          const file = files.next();
+          if (file.isTrashed()) continue;
+          const fileId = file.getId();
+          results.push({
+            fileId: fileId,
+            fileName: file.getName(),
+            fileUrl: "https://drive.google.com/file/d/" + fileId + "/view",
+            downloadUrl: "https://drive.google.com/uc?export=download&id=" + fileId,
+            mimeType: file.getMimeType(),
+            size: file.getSize(),
+            tahun: pathParts.find(function(p) { return /^\d{4}$/.test(p); }) || "",
+            timKerja: pathParts.length >= 2 ? pathParts[pathParts.length - 2] : "",
+            bulan: pathParts.length >= 1 ? pathParts[pathParts.length - 1] : "",
+            subfolder: "Arsip",
+            folderPath: pathParts.concat(["Arsip"]).join(" / "),
+            updatedAt: file.getLastUpdated() ? file.getLastUpdated().toISOString() : ""
+          });
+        }
+        return;
+      }
+
+      const subFolders = folder.getFolders();
+      while (subFolders.hasNext()) {
+        const sub = subFolders.next();
+        const subName = sub.getName();
+        scanFolder(sub, pathParts.concat([subName]));
+      }
+    }
+
+    scanFolder(rootFolder, []);
+    return { success: true, files: results };
+  } catch (err) {
+    return { success: false, files: [], error: err.toString() };
+  }
+}
+
+/**
+ * Mengambil Seluruh Data dari Spreadsheet
+ */
 function getAllData(customSs) {
   const ss = customSs ? getSpreadsheet(customSs) : getSpreadsheet();
   
@@ -1043,12 +1136,19 @@ function getAllData(customSs) {
   if (sheetKeluar && sheetKeluar.getLastRow() > 1) {
     const data = sheetKeluar.getRange(2, 1, sheetKeluar.getLastRow() - 1, 12).getValues();
     data.forEach(function(r, i) {
+      const noUrut = Number(r[2]);
+      const statusStr = String(r[11] || "LENGKAP");
+      const noLengkap = String(r[0] || "");
+      // Lewati baris header yang tidak sengaja tersimpan di baris ke-2
+      if (isNaN(noUrut) || noUrut <= 0 || statusStr === "Status" || noLengkap === "Nomor Surat Lengkap") {
+        return;
+      }
       if (r[0] || r[2]) {
         suratList.push({
           id: "surat-" + (r[2] || i),
-          nomorSuratLengkap: String(r[0] || ""),
+          nomorSuratLengkap: noLengkap,
           kodeSurat: String(r[1] || "B"),
-          nomorUrut: Number(r[2] || 0),
+          nomorUrut: noUrut,
           kodeKlasifikasi: String(r[3] || ""),
           perihal: String(r[4] || ""),
           tujuan: String(r[5] || ""),
@@ -1057,7 +1157,7 @@ function getAllData(customSs) {
           namaPegawai: String(r[8] || ""),
           timKerja: String(r[9] || ""),
           waktuInput: String(r[10] || ""),
-          status: String(r[11] || "LENGKAP")
+          status: statusStr
         });
       }
     });
@@ -1090,7 +1190,34 @@ function getAllData(customSs) {
           drafFile: details.drafFile || { name: "draf.docx", size: 0, type: "docx" },
           riwayatVersi: details.riwayatVersi || [],
           riwayatVerifikasi: details.riwayatVerifikasi || [],
-          dokumenFinal: details.dokumenFinal
+          dokumenFinal: details.dokumenFinal,
+          driveDraftFileId: details.driveDraftFileId,
+          driveDraftUrl: details.driveDraftUrl,
+          driveDraftFolderPath: details.driveDraftFolderPath
+        });
+      }
+    });
+  }
+
+  // Baca Arsip Digital
+  const sheetArsip = ss.getSheetByName(SHEET_ARSIP);
+  const arsipList = [];
+  if (sheetArsip && sheetArsip.getLastRow() > 1) {
+    const dataA = sheetArsip.getRange(2, 1, sheetArsip.getLastRow() - 1, 11).getValues();
+    dataA.forEach(function(r) {
+      if (r[0] && String(r[0]) !== "Nomor Surat Resmi") {
+        arsipList.push({
+          nomorSuratResmi: String(r[0] || ""),
+          jenisNaskah: String(r[1] || "Surat Dinas Biasa"),
+          perihal: String(r[2] || ""),
+          unitKerja: String(r[3] || ""),
+          tanggalPenetapan: String(r[4] || ""),
+          tipeTandaTangan: String(r[5] || "TTE") === "KONVENSIONAL" ? "KONVENSIONAL" : "TTE",
+          pejabatPenandatangan: String(r[6] || ""),
+          namaFile: String(r[7] || ""),
+          tingkatKeamanan: String(r[8] || "Biasa"),
+          lokasiPenyimpanan: String(r[9] || ""),
+          waktuUnggah: String(r[10] || "")
         });
       }
     });
@@ -1128,10 +1255,41 @@ function getAllData(customSs) {
   // Baca Log Aktivitas terkini dari Sheet LogAktivitas
   const logRes = getActivityLogs(customSs);
 
+  // Pindai berkas Arsip pada Google Drive
+  let driveFiles = [];
+  try {
+    const folderId = (configRes && configRes.config && configRes.config.googleDriveFolderId) || "1_Xsmp2dafHvoyhXuhS1x1_GkbWDy7i0S";
+    const driveRes = getDriveArchiveFiles(folderId);
+    if (driveRes && driveRes.success && Array.isArray(driveRes.files)) {
+      driveFiles = driveRes.files;
+    }
+  } catch (e) {}
+
+  // Kaitkan driveFileId & driveUrl langsung ke arsipList jika cocok dengan driveFiles
+  if (driveFiles.length > 0 && arsipList.length > 0) {
+    arsipList.forEach(function(item) {
+      var targetName = String(item.namaFile || "").toLowerCase();
+      var targetNo = String(item.nomorSuratResmi || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      for (var d = 0; d < driveFiles.length; d++) {
+        var df = driveFiles[d];
+        var dfName = String(df.fileName || "").toLowerCase();
+        var dfNorm = dfName.replace(/[^a-z0-9]/g, "");
+        if ((targetName && dfName === targetName) || (targetNo && targetNo.length >= 6 && dfNorm.indexOf(targetNo) !== -1)) {
+          item.driveFileId = df.fileId;
+          item.driveUrl = df.fileUrl;
+          item.driveFolderPath = df.folderPath;
+          break;
+        }
+      }
+    });
+  }
+
   return {
     success: true,
     suratList: suratList,
     naskahList: naskahList,
+    arsipList: arsipList,
+    driveFiles: driveFiles,
     userList: userList,
     configData: configRes.config,
     configItems: configRes.items,
@@ -1142,6 +1300,18 @@ function getAllData(customSs) {
 /**
  * Rekam / Update Naskah Dinas
  */
+function sanitizeFileObjForCell(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const copy = {};
+  for (const k in obj) {
+    if (k === "dataUrl" && typeof obj[k] === "string" && obj[k].length > 4000) {
+      continue;
+    }
+    copy[k] = obj[k];
+  }
+  return copy;
+}
+
 function recordNaskahDinas(naskah, customSs) {
   const ss = customSs ? getSpreadsheet(customSs) : getSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NASKAH);
@@ -1150,13 +1320,20 @@ function recordNaskahDinas(naskah, customSs) {
     sheet = ss.getSheetByName(SHEET_NASKAH);
   }
 
+  const sanitizedVersi = Array.isArray(naskah.riwayatVersi)
+    ? naskah.riwayatVersi.map(sanitizeFileObjForCell)
+    : [];
+
   const detailsJSON = JSON.stringify({
     id: naskah.id,
     roleVerifikatorDitunjuk: naskah.roleVerifikatorDitunjuk,
-    drafFile: naskah.drafFile,
-    riwayatVersi: naskah.riwayatVersi,
+    drafFile: sanitizeFileObjForCell(naskah.drafFile),
+    riwayatVersi: sanitizedVersi,
     riwayatVerifikasi: naskah.riwayatVerifikasi,
-    dokumenFinal: naskah.dokumenFinal
+    dokumenFinal: sanitizeFileObjForCell(naskah.dokumenFinal),
+    driveDraftFileId: naskah.driveDraftFileId,
+    driveDraftUrl: naskah.driveDraftUrl,
+    driveDraftFolderPath: naskah.driveDraftFolderPath
   });
 
   const rowData = [
@@ -1192,7 +1369,7 @@ function recordNaskahDinas(naskah, customSs) {
     sheet.appendRow(rowData);
   }
 
-  if (naskah.status === "FINAL_DIARSIPKAN" && naskah.dokumenFinal) {
+  if ((naskah.status === "FINAL_DIARSIPKAN" || naskah.status === "SELESAI_ARSIP") && naskah.dokumenFinal) {
     recordArsipDigital(naskah, customSs);
   }
 
@@ -1455,10 +1632,12 @@ function handleUploadDraftDrive(data) {
       file = targetFolder.createFile(fileName, "Draf Naskah Dinas BPS Kalbar (" + data.nomorRegistrasi + ")", data.mimeType || MimeType.PLAIN_TEXT);
     }
 
+    const draftFileId = file.getId();
     return {
       success: true,
-      fileId: file.getId(),
-      fileUrl: file.getUrl(),
+      fileId: draftFileId,
+      fileUrl: "https://drive.google.com/file/d/" + draftFileId + "/view",
+      downloadUrl: "https://drive.google.com/uc?export=download&id=" + draftFileId,
       folderId: targetFolder.getId(),
       folderUrl: targetFolder.getUrl(),
       actionTaken: actionTaken
@@ -1485,6 +1664,14 @@ function handleArchiveFinalDrive(data) {
       } catch(e) {}
     }
 
+    // Ganti berkas arsip lama jika bernama sama agar tidak duplikat
+    const existingArchives = targetFolder.getFilesByName(fileName);
+    while (existingArchives.hasNext()) {
+      try {
+        existingArchives.next().setTrashed(true);
+      } catch(e) {}
+    }
+
     let file;
     if (data.fileDataUrl && data.fileDataUrl.indexOf("base64,") !== -1) {
       const base64Data = data.fileDataUrl.split("base64,")[1];
@@ -1495,10 +1682,12 @@ function handleArchiveFinalDrive(data) {
       file = targetFolder.createFile(fileName, "Arsip Dokumen Final BPS Kalbar (" + data.nomorSuratResmi + ")", "application/pdf");
     }
 
+    const finalFileId = file.getId();
     return {
       success: true,
-      fileId: file.getId(),
-      fileUrl: file.getUrl(),
+      fileId: finalFileId,
+      fileUrl: "https://drive.google.com/file/d/" + finalFileId + "/view",
+      downloadUrl: "https://drive.google.com/uc?export=download&id=" + finalFileId,
       folderId: targetFolder.getId(),
       folderUrl: targetFolder.getUrl(),
       actionTaken: "moved"
@@ -1560,6 +1749,36 @@ function formatFetchErrorMessage(err: any, url: string): string {
 }
 
 /**
+ * Menghapus string base64 berukuran besar dari NaskahDinas sebelum disimpan ke sel Google Sheets
+ * agar tidak melampaui batas 50.000 karakter per sel dan menyebabkan field dokumenFinal terpotong.
+ */
+export function sanitizeNaskahForSheet(naskah: NaskahDinas): NaskahDinas {
+  const stripLargeDataUrl = <T extends { dataUrl?: string } | undefined>(file: T): T => {
+    if (!file) return file;
+    if (typeof file.dataUrl === 'string' && file.dataUrl.length > 4000) {
+      const { dataUrl: _omitted, ...rest } = file;
+      return rest as T;
+    }
+    return file;
+  };
+
+  return {
+    ...naskah,
+    drafFile: stripLargeDataUrl(naskah.drafFile),
+    riwayatVersi: Array.isArray(naskah.riwayatVersi)
+      ? naskah.riwayatVersi.map((v) => stripLargeDataUrl(v))
+      : [],
+    dokumenFinal: stripLargeDataUrl(naskah.dokumenFinal),
+    riwayatVerifikasi: Array.isArray(naskah.riwayatVerifikasi)
+      ? naskah.riwayatVerifikasi.map((rv) => ({
+          ...rv,
+          fileCatatanRevisi: stripLargeDataUrl(rv.fileCatatanRevisi),
+        }))
+      : [],
+  };
+}
+
+/**
  * Mengirim aksi ke Apps Script Web App
  */
 export async function sendAppsScriptAction(
@@ -1574,9 +1793,14 @@ export async function sendAppsScriptAction(
     }
     const url = normalizeAppsScriptUrl(rawUrl);
 
+    const sanitizedData =
+      (action === 'saveNaskah' || action === 'updateNaskah') && data && typeof data === 'object'
+        ? sanitizeNaskahForSheet(data as NaskahDinas)
+        : data;
+
     const payload = JSON.stringify({
       action,
-      data,
+      data: sanitizedData,
       spreadsheetId: config.spreadsheetId,
     });
 
@@ -1636,6 +1860,8 @@ export async function fetchSpreadsheetData(
   success: boolean;
   suratList?: SuratKeluar[];
   naskahList?: NaskahDinas[];
+  arsipList?: ArsipDigitalRecord[];
+  driveFiles?: DriveArchiveFile[];
   userList?: UserProfile[];
   remoteConfig?: Partial<AppConfig>;
   configItems?: PengaturanItemSpreadsheet[];
@@ -1653,39 +1879,63 @@ export async function fetchSpreadsheetData(
     let remoteConfig: Partial<AppConfig> | undefined;
     if (json.configData && typeof json.configData === 'object') {
       const c = json.configData;
-      remoteConfig = {
-        nomorBaruMulaiDari: c.nomorBaruMulaiDari ? Number(c.nomorBaruMulaiDari) : undefined,
-        kodeUnit: c.kodeUnit || undefined,
-        whatsappAdmin: c.whatsappAdmin || undefined,
-        enableMondayRule: c.enableMondayRule !== undefined ? String(c.enableMondayRule) !== 'false' : undefined,
-        googleDriveFolderId: c.googleDriveFolderId || undefined,
-        syncIntervalSeconds: c.syncIntervalSeconds ? Number(c.syncIntervalSeconds) : undefined,
-        lastConfigUpdate: c.lastConfigUpdate || new Date().toISOString(),
-        updatedBy: c.updatedBy || 'Spreadsheet',
-      };
+      const cleanRemote: Partial<AppConfig> = {};
+      if (c.nomorBaruMulaiDari && !isNaN(Number(c.nomorBaruMulaiDari))) {
+        cleanRemote.nomorBaruMulaiDari = Number(c.nomorBaruMulaiDari);
+      }
+      if (c.kodeUnit && String(c.kodeUnit).trim()) {
+        cleanRemote.kodeUnit = String(c.kodeUnit).trim();
+      }
+      if (c.whatsappAdmin && String(c.whatsappAdmin).trim()) {
+        cleanRemote.whatsappAdmin = String(c.whatsappAdmin).trim();
+      }
+      if (c.enableMondayRule !== undefined && c.enableMondayRule !== '') {
+        cleanRemote.enableMondayRule = String(c.enableMondayRule) !== 'false';
+      }
+      if (c.googleDriveFolderId && String(c.googleDriveFolderId).trim()) {
+        cleanRemote.googleDriveFolderId = String(c.googleDriveFolderId).trim();
+      }
+      if (c.syncIntervalSeconds && !isNaN(Number(c.syncIntervalSeconds))) {
+        cleanRemote.syncIntervalSeconds = Number(c.syncIntervalSeconds);
+      }
+      if (c.lastConfigUpdate) {
+        cleanRemote.lastConfigUpdate = String(c.lastConfigUpdate);
+      }
+      if (c.updatedBy) {
+        cleanRemote.updatedBy = String(c.updatedBy);
+      }
 
       if (c.daftarTimKerja) {
         try {
-          const parsed = JSON.parse(c.daftarTimKerja);
-          if (Array.isArray(parsed)) remoteConfig.daftarTimKerja = parsed;
+          const parsed = typeof c.daftarTimKerja === 'string' ? JSON.parse(c.daftarTimKerja) : c.daftarTimKerja;
+          if (Array.isArray(parsed) && parsed.length > 0) cleanRemote.daftarTimKerja = parsed;
         } catch {}
       }
       if (c.pemetaanVerifikator) {
         try {
-          const parsed = JSON.parse(c.pemetaanVerifikator);
-          if (typeof parsed === 'object') remoteConfig.pemetaanVerifikator = parsed;
+          const parsed =
+            typeof c.pemetaanVerifikator === 'string'
+              ? JSON.parse(c.pemetaanVerifikator)
+              : c.pemetaanVerifikator;
+          if (parsed && typeof parsed === 'object') cleanRemote.pemetaanVerifikator = parsed;
         } catch {}
+      }
+
+      if (Object.keys(cleanRemote).length > 0) {
+        remoteConfig = cleanRemote;
       }
     }
 
     return {
       success: true,
       suratList: Array.isArray(json.suratList)
-        ? json.suratList.map((s: SuratKeluar) => ({
-            ...s,
-            tanggalSurat: s.tanggalSurat ? formatTanggalIndo(s.tanggalSurat) : s.tanggalSurat,
-            waktuInput: s.waktuInput ? formatTanggalWaktuIndo(s.waktuInput) : s.waktuInput,
-          }))
+        ? json.suratList
+            .filter(isValidSuratRow)
+            .map((s: SuratKeluar) => ({
+              ...s,
+              tanggalSurat: s.tanggalSurat ? formatTanggalIndo(s.tanggalSurat) : s.tanggalSurat,
+              waktuInput: s.waktuInput ? formatTanggalWaktuIndo(s.waktuInput) : s.waktuInput,
+            }))
         : [],
       naskahList: Array.isArray(json.naskahList)
         ? json.naskahList.map((n: NaskahDinas) => ({
@@ -1694,6 +1944,8 @@ export async function fetchSpreadsheetData(
             waktuUpdate: n.waktuUpdate ? formatTanggalWaktuIndo(n.waktuUpdate) : n.waktuUpdate,
           }))
         : [],
+      arsipList: Array.isArray(json.arsipList) ? json.arsipList : [],
+      driveFiles: Array.isArray(json.driveFiles) ? json.driveFiles : [],
       userList: Array.isArray(json.userList) ? json.userList : [],
       remoteConfig,
       configItems: Array.isArray(json.configItems) ? json.configItems : [],
@@ -1771,27 +2023,42 @@ export async function fetchSpreadsheetConfig(
   const ssId = config.spreadsheetId;
 
   const parseConfigData = (json: any) => {
-    let parsedConfig: Partial<AppConfig> = {};
-    if (json.config) {
-      parsedConfig = {
-        nomorBaruMulaiDari: json.config.nomorBaruMulaiDari ? Number(json.config.nomorBaruMulaiDari) : undefined,
-        kodeUnit: json.config.kodeUnit || undefined,
-        whatsappAdmin: json.config.whatsappAdmin || undefined,
-        enableMondayRule: json.config.enableMondayRule !== undefined ? String(json.config.enableMondayRule) !== 'false' : undefined,
-        googleDriveFolderId: json.config.googleDriveFolderId || undefined,
-        syncIntervalSeconds: json.config.syncIntervalSeconds ? Number(json.config.syncIntervalSeconds) : undefined,
-        lastConfigUpdate: new Date().toISOString(),
-      };
-      if (json.config.daftarTimKerja) {
+    const parsedConfig: Partial<AppConfig> = {};
+    if (json.config && typeof json.config === 'object') {
+      const c = json.config;
+      if (c.nomorBaruMulaiDari && !isNaN(Number(c.nomorBaruMulaiDari))) {
+        parsedConfig.nomorBaruMulaiDari = Number(c.nomorBaruMulaiDari);
+      }
+      if (c.kodeUnit && String(c.kodeUnit).trim()) {
+        parsedConfig.kodeUnit = String(c.kodeUnit).trim();
+      }
+      if (c.whatsappAdmin && String(c.whatsappAdmin).trim()) {
+        parsedConfig.whatsappAdmin = String(c.whatsappAdmin).trim();
+      }
+      if (c.enableMondayRule !== undefined && c.enableMondayRule !== '') {
+        parsedConfig.enableMondayRule = String(c.enableMondayRule) !== 'false';
+      }
+      if (c.googleDriveFolderId && String(c.googleDriveFolderId).trim()) {
+        parsedConfig.googleDriveFolderId = String(c.googleDriveFolderId).trim();
+      }
+      if (c.syncIntervalSeconds && !isNaN(Number(c.syncIntervalSeconds))) {
+        parsedConfig.syncIntervalSeconds = Number(c.syncIntervalSeconds);
+      }
+      parsedConfig.lastConfigUpdate = new Date().toISOString();
+
+      if (c.daftarTimKerja) {
         try {
-          const arr = JSON.parse(json.config.daftarTimKerja);
-          if (Array.isArray(arr)) parsedConfig.daftarTimKerja = arr;
+          const arr = typeof c.daftarTimKerja === 'string' ? JSON.parse(c.daftarTimKerja) : c.daftarTimKerja;
+          if (Array.isArray(arr) && arr.length > 0) parsedConfig.daftarTimKerja = arr;
         } catch {}
       }
-      if (json.config.pemetaanVerifikator) {
+      if (c.pemetaanVerifikator) {
         try {
-          const map = JSON.parse(json.config.pemetaanVerifikator);
-          if (typeof map === 'object') parsedConfig.pemetaanVerifikator = map;
+          const map =
+            typeof c.pemetaanVerifikator === 'string'
+              ? JSON.parse(c.pemetaanVerifikator)
+              : c.pemetaanVerifikator;
+          if (map && typeof map === 'object') parsedConfig.pemetaanVerifikator = map;
         } catch {}
       }
     }

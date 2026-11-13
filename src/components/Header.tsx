@@ -3,7 +3,6 @@ import {
   Settings,
   FileText,
   Table2,
-  Layers,
   BarChart3,
   BookOpen,
   Archive,
@@ -14,9 +13,17 @@ import {
   RefreshCw,
   LogOut,
   Users,
+  Bell,
+  CheckCheck,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Hash,
+  Trash2,
+  Unlock,
 } from 'lucide-react';
 import { RoleSwitcher } from './RoleSwitcher';
-import { UserProfile } from '../types';
+import { AktivitasNotifikasi, TipeAktivitas, UserProfile } from '../types';
 
 export type MainNavTab =
   | 'dashboard'
@@ -70,17 +77,24 @@ export const Header: React.FC<HeaderProps> = ({
   const [filterNotif, setFilterNotif] = React.useState<'semua' | 'unread'>('semua');
   const notifRef = React.useRef<HTMLDivElement>(null);
 
-  // Close notifications on outside click
+  // Close notifications on outside click or Escape key
   React.useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setShowNotifMenu(false);
       }
     };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowNotifMenu(false);
+    };
     if (showNotifMenu) {
       document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('keydown', handleEsc);
     }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEsc);
+    };
   }, [showNotifMenu]);
 
   const unreadCount = React.useMemo(() => {
@@ -94,11 +108,69 @@ export const Header: React.FC<HeaderProps> = ({
     return notifications;
   }, [notifications, filterNotif]);
 
+  const getNotifVisual = (tipe?: TipeAktivitas) => {
+    switch (tipe) {
+      case 'PENGAJUAN_DRAF':
+        return {
+          icon: <Send className="w-3.5 h-3.5 text-[#0f4c82]" />,
+          bg: 'bg-blue-100/90 border-blue-200',
+        };
+      case 'VERIFIKASI_SETUJU':
+        return {
+          icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />,
+          bg: 'bg-emerald-100/90 border-emerald-200',
+        };
+      case 'VERIFIKASI_PERBAIKAN':
+        return {
+          icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />,
+          bg: 'bg-amber-100/90 border-amber-200',
+        };
+      case 'VERIFIKASI_TOLAK':
+        return {
+          icon: <XCircle className="w-3.5 h-3.5 text-rose-700" />,
+          bg: 'bg-rose-100/90 border-rose-200',
+        };
+      case 'NOMOR_TERBIT':
+        return {
+          icon: <Hash className="w-3.5 h-3.5 text-indigo-700" />,
+          bg: 'bg-indigo-100/90 border-indigo-200',
+        };
+      case 'UNGGAH_FINAL':
+        return {
+          icon: <Archive className="w-3.5 h-3.5 text-teal-700" />,
+          bg: 'bg-teal-100/90 border-teal-200',
+        };
+      case 'BUKA_KEMBALI':
+        return {
+          icon: <Unlock className="w-3.5 h-3.5 text-amber-700" />,
+          bg: 'bg-amber-100/90 border-amber-200',
+        };
+      case 'HAPUS_NASKAH':
+      case 'HAPUS_ARSIP':
+        return {
+          icon: <Trash2 className="w-3.5 h-3.5 text-rose-700" />,
+          bg: 'bg-rose-100/90 border-rose-200',
+        };
+      case 'PENGATURAN_UPDATE':
+        return {
+          icon: <Settings className="w-3.5 h-3.5 text-slate-700" />,
+          bg: 'bg-slate-100 border-slate-200',
+        };
+      default:
+        return {
+          icon: <FileText className="w-3.5 h-3.5 text-[#0f4c82]" />,
+          bg: 'bg-blue-50 border-blue-200',
+        };
+    }
+  };
+
   return (
-    <header className="relative bg-gradient-to-r from-[#0a335a] via-[#0f4c82] to-[#125d36] text-white shadow-md overflow-hidden">
-      {/* Decorative subtle overlay */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.12),transparent_60%)] pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#e06c1a] via-[#f08030] to-[#f5a623]" />
+    <header className="relative z-30 bg-gradient-to-r from-[#0a335a] via-[#0f4c82] to-[#125d36] text-white shadow-md">
+      {/* Decorative subtle overlay wrapped in overflow-hidden so popovers/dropdowns are never clipped */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.12),transparent_60%)]" />
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#e06c1a] via-[#f08030] to-[#f5a623]" />
+      </div>
 
       <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-3 sm:py-3.5 relative z-10">
         
@@ -163,21 +235,11 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title="Pemberitahuan Aktivitas Terkini"
                 aria-label="Notifikasi Aktivitas"
+                aria-expanded={showNotifMenu}
               >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                  <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-                </svg>
+                <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-xs border-2 border-[#0f4c82] animate-bounce">
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-xs border-2 border-[#0f4c82]">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -185,79 +247,81 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* Notification Popover */}
               {showNotifMenu && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 text-slate-900 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                  <div className="p-3.5 bg-gradient-to-r from-slate-50 to-blue-50/50 border-b border-slate-200 flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[400px] max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 text-slate-900 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                  <div className="p-3.5 bg-gradient-to-r from-slate-50 via-blue-50/50 to-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2 flex-wrap">
                         <span>Pemberitahuan Aktivitas</span>
                         {unreadCount > 0 && (
-                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#0f4c82] text-white">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0f4c82] text-white">
                             {unreadCount} baru
                           </span>
                         )}
                       </h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Perubahan status naskah dinas & arsip secara realtime
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        Perubahan status naskah dinas & arsip terpadu
                       </p>
                     </div>
                     {unreadCount > 0 && onMarkAllNotificationsRead && (
                       <button
-                        onClick={() => {
-                          onMarkAllNotificationsRead();
-                        }}
-                        className="text-[11px] font-semibold text-[#0f4c82] hover:text-[#1a6bb5] cursor-pointer"
+                        type="button"
+                        onClick={() => onMarkAllNotificationsRead()}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-[11px] font-semibold text-[#0f4c82] border border-blue-200/80 shadow-2xs shrink-0 cursor-pointer transition-colors"
                       >
-                        Tandai Semua
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        <span>Tandai Semua</span>
                       </button>
                     )}
                   </div>
 
                   {/* Filter tabs */}
-                  <div className="flex border-b border-slate-100 bg-slate-50/50 px-3 py-1.5 gap-2">
-                    <button
-                      onClick={() => setFilterNotif('semua')}
-                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg cursor-pointer transition-colors ${
-                        filterNotif === 'semua'
-                          ? 'bg-white text-[#0f4c82] shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      Semua ({notifications.length})
-                    </button>
-                    <button
-                      onClick={() => setFilterNotif('unread')}
-                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg cursor-pointer transition-colors ${
-                        filterNotif === 'unread'
-                          ? 'bg-white text-[#0f4c82] shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      Belum Dibaca ({unreadCount})
-                    </button>
+                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-3 py-1.5 gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setFilterNotif('semua')}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg cursor-pointer transition-colors ${
+                          filterNotif === 'semua'
+                            ? 'bg-white text-[#0f4c82] shadow-xs border border-slate-200/70'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Semua ({notifications.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFilterNotif('unread')}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg cursor-pointer transition-colors ${
+                          filterNotif === 'unread'
+                            ? 'bg-white text-[#0f4c82] shadow-xs border border-slate-200/70'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Belum Dibaca ({unreadCount})
+                      </button>
+                    </div>
                   </div>
 
                   {/* Notification List */}
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                  <div className="max-h-[60vh] sm:max-h-96 overflow-y-auto divide-y divide-slate-100">
                     {displayedNotifications.length === 0 ? (
                       <div className="p-8 text-center text-slate-400">
-                        <svg
-                          className="w-8 h-8 mx-auto mb-2 text-slate-300"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.5"
-                            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                          />
-                        </svg>
-                        <p className="text-xs font-medium">Belum ada aktivitas baru</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Notifikasi akan muncul otomatis saat ada update</p>
+                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center mx-auto mb-2.5">
+                          <Bell className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-semibold text-slate-600">
+                          {filterNotif === 'unread' ? 'Semua notifikasi telah dibaca' : 'Belum ada aktivitas baru'}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Notifikasi akan muncul otomatis saat ada pembaruan naskah atau arsip
+                        </p>
                       </div>
                     ) : (
-                      displayedNotifications.map((notif) => {
+                      displayedNotifications.map((notif: AktivitasNotifikasi) => {
+                        const visual = getNotifVisual(notif.tipeAktivitas);
+                        const titleText = notif.judul || 'Aktivitas Sistem';
+                        const descText = notif.deskripsi || notif.pesan || '-';
+                        const actorText = notif.pelaku || notif.aktor || 'Sistem';
                         return (
                           <div
                             key={notif.id}
@@ -270,32 +334,45 @@ export const Header: React.FC<HeaderProps> = ({
                               }
                               setShowNotifMenu(false);
                             }}
-                            className={`p-3 transition-colors cursor-pointer text-left hover:bg-slate-50 flex gap-2.5 items-start ${
-                              !notif.dibaca ? 'bg-blue-50/40' : ''
+                            className={`p-3.5 transition-colors cursor-pointer text-left hover:bg-slate-50 flex gap-3 items-start ${
+                              !notif.dibaca ? 'bg-blue-50/50' : 'bg-white'
                             }`}
                           >
-                            <span
-                              className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
-                                !notif.dibaca ? 'bg-[#0f4c82]' : 'bg-transparent'
-                              }`}
-                            />
+                            <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${visual.bg}`}>
+                              {visual.icon}
+                            </div>
+
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[11px] font-bold text-slate-900 truncate">
-                                  {notif.judul}
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-xs font-bold text-slate-900 leading-snug line-clamp-1">
+                                  {titleText}
                                 </span>
-                                <span className="text-[9px] text-slate-400 whitespace-nowrap">
-                                  {notif.waktu}
-                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono-tabular">
+                                    {notif.waktu}
+                                  </span>
+                                  {!notif.dibaca && (
+                                    <span className="w-2 h-2 rounded-full bg-[#0f4c82]" title="Belum dibaca" />
+                                  )}
+                                </div>
                               </div>
-                              <p className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 leading-relaxed">
-                                {notif.deskripsi}
+
+                              <p className="text-[11px] text-slate-600 line-clamp-2 mt-1 leading-relaxed">
+                                {descText}
                               </p>
-                              <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
-                                <span>Oleh: <strong className="text-slate-700">{notif.pelaku}</strong></span>
-                                {notif.nomorRegistrasi && (
-                                  <span className="font-mono text-[9px] bg-slate-100 px-1.5 py-0.2 rounded text-slate-600">
+
+                              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500">
+                                <span>
+                                  Oleh: <strong className="text-slate-700">{actorText}</strong>
+                                </span>
+                                {notif.nomorRegistrasi && notif.nomorRegistrasi !== '-' && (
+                                  <span className="font-mono text-[10px] bg-slate-100 border border-slate-200/70 px-1.5 py-0.5 rounded text-slate-700 font-semibold">
                                     {notif.nomorRegistrasi}
+                                  </span>
+                                )}
+                                {notif.nomorSurat && notif.nomorSurat !== '-' && (
+                                  <span className="font-mono text-[10px] bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded text-emerald-800 font-semibold">
+                                    {notif.nomorSurat}
                                   </span>
                                 )}
                               </div>
@@ -306,10 +383,17 @@ export const Header: React.FC<HeaderProps> = ({
                     )}
                   </div>
 
-                  <div className="p-2 bg-slate-50 border-t border-slate-100 text-center">
+                  <div className="px-3.5 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                     <span className="text-[10px] text-slate-400 font-medium">
                       Sinkron otomatis dengan Google Spreadsheet
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowNotifMenu(false)}
+                      className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      Tutup
+                    </button>
                   </div>
                 </div>
               )}

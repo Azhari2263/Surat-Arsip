@@ -12,10 +12,13 @@ import {
   ChevronDown,
   Search,
   Building,
+  Eye,
 } from 'lucide-react';
 import { AppConfig, KodeSuratType, SubmitSuratPayload, SuratKeluar, UserProfile } from '../types';
 import { BULAN_LIST, DAFTAR_KLASIFIKASI_BPS, TIM_KERJA_OPTIONS, DAFTAR_TIM_KERJA } from '../data/bpsClassifications';
 import { formatTanggalIndo } from '../utils/storage';
+import { DirectFileInput } from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface LetterFormProps {
   onSubmit: (payload: SubmitSuratPayload, simulateMonday: boolean) => Promise<void>;
@@ -66,6 +69,7 @@ export const LetterForm: React.FC<LetterFormProps> = ({
   // UI state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   // Today's date setup
   useEffect(() => {
@@ -115,9 +119,15 @@ export const LetterForm: React.FC<LetterFormProps> = ({
     if (!file) return;
 
     if (file.size > 15 * 1024 * 1024) {
-      alert('Ukuran file maksimal 15MB');
+      setErrors((prev) => ({ ...prev, uploadedFile: 'Ukuran file maksimal 15MB' }));
       return;
     }
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.uploadedFile;
+      return next;
+    });
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -448,15 +458,29 @@ export const LetterForm: React.FC<LetterFormProps> = ({
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={removeUploadedFile}
-                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                title="Hapus file"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(uploadedFile)}
+                  className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-[#0f4c82] border border-blue-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Buka File sebelum mengirim"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Buka File</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={removeUploadedFile}
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                  title="Hapus file"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+          )}
+          {errors.uploadedFile && (
+            <p className="text-[11px] text-red-600 font-medium mt-1.5">{errors.uploadedFile}</p>
           )}
         </div>
 
@@ -758,6 +782,12 @@ export const LetterForm: React.FC<LetterFormProps> = ({
         </div>
 
       </form>
+
+      <FilePreviewModal
+        file={previewFile}
+        rootFolderId={config?.googleDriveFolderId}
+        onClose={() => setPreviewFile(null)}
+      />
     </div>
   );
 };

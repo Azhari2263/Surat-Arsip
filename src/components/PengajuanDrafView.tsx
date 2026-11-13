@@ -44,6 +44,12 @@ import { TIM_KERJA_OPTIONS, DAFTAR_TIM_KERJA, DAFTAR_KLASIFIKASI_BPS } from '../
 import { tentukanVerifikator } from '../data/verifikatorData';
 import { NaskahTimelineModal } from './NaskahTimelineModal';
 import { formatTanggalIndo } from '../utils/storage';
+import {
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
+} from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface PengajuanDrafViewProps {
   currentUser: UserProfile;
@@ -107,6 +113,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
   onToast,
 }) => {
   const [subTab, setSubTab] = useState<'form' | 'timeline'>('form');
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   // Form Fields - Sesuai Ketentuan Integrasi Penuh
   const [jenisNaskah, setJenisNaskah] = useState<JenisNaskahDinas>('Surat Dinas Biasa');
@@ -244,14 +251,24 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
 
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (ext !== 'doc' && ext !== 'docx') {
-      alert('File draf naskah dinas wajib berformat Microsoft Word (.doc atau .docx)');
+      const msg = 'File draf naskah dinas wajib berformat Microsoft Word (.doc atau .docx)';
+      setErrors((prev) => ({ ...prev, uploadedFile: msg }));
+      if (onToast) onToast(`⚠ ${msg}`);
       return;
     }
 
     if (file.size > 20 * 1024 * 1024) {
-      alert('Ukuran file maksimal 20 MB');
+      const msg = 'Ukuran file maksimal 20 MB';
+      setErrors((prev) => ({ ...prev, uploadedFile: msg }));
+      if (onToast) onToast(`⚠ ${msg}`);
       return;
     }
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.uploadedFile;
+      return next;
+    });
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -883,17 +900,45 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {item.drafFile?.dataUrl && (
-                          <a
-                            href={item.drafFile.dataUrl}
-                            download={item.drafFile.name}
-                            className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Unduh Word</span>
-                          </a>
-                        )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(() => {
+                          const draftInput: DirectFileInput = {
+                            name: item.drafFile?.name || 'draf.docx',
+                            type: item.drafFile?.type,
+                            size: item.drafFile?.size,
+                            dataUrl: item.drafFile?.dataUrl,
+                            driveFileId: item.driveDraftFileId,
+                            driveUrl: item.driveDraftUrl,
+                          };
+                          const access = resolveDirectFileAccess(draftInput, config?.googleDriveFolderId);
+                          if (!access.hasAnyAccess) return null;
+                          return (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFile(draftInput)}
+                                className="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0f4c82] font-semibold flex items-center gap-1.5 cursor-pointer"
+                                title={`Buka File ${draftInput.name}`}
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Buka File</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const res = triggerDirectDownload(draftInput, config?.googleDriveFolderId);
+                                  if (res.ok) onToast?.(`✔ Mengunduh ${draftInput.name}`);
+                                  else onToast?.(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                                }}
+                                className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold flex items-center gap-1.5 cursor-pointer"
+                                title={`Unduh ${draftInput.name}`}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Unduh Word</span>
+                              </button>
+                            </>
+                          );
+                        })()}
 
                         <button
                           onClick={() => setSelectedTimelineNaskah(item)}
@@ -1431,23 +1476,35 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
               )}
 
               {uploadedFile && (
-                <div className="mt-3 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileText className="w-5 h-5 text-blue-700" />
-                    <div>
-                      <div className="font-bold text-xs text-slate-900">{uploadedFile.name}</div>
+                <div className="mt-3 p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FileText className="w-5 h-5 text-blue-700 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-900 truncate">{uploadedFile.name}</div>
                       <div className="text-[10px] text-slate-500 font-mono-tabular">
                         {(uploadedFile.size / 1024).toFixed(1)} KB · Siap Diajukan ke Verifikator
                       </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setUploadedFile(null)}
-                    className="p-1 rounded hover:bg-white text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFile(uploadedFile)}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-[#0f4c82] border border-blue-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Buka File sebelum mengirim"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Buka File</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadedFile(null)}
+                      className="p-1 rounded hover:bg-white text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                      title="Hapus berkas"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1483,7 +1540,7 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
       {/* Modal Detail Timeline Full View */}
       {selectedTimelineNaskah && (
         <NaskahTimelineModal
-          naskah={selectedTimelineNaskah}
+          naskah={naskahList.find((n) => n.id === selectedTimelineNaskah.id) || selectedTimelineNaskah}
           currentUser={currentUser}
           onClose={() => setSelectedTimelineNaskah(null)}
           onOpenRevisiModal={(n) => {
@@ -1500,6 +1557,12 @@ export const PengajuanDrafView: React.FC<PengajuanDrafViewProps> = ({
           onToast={onToast}
         />
       )}
+      <FilePreviewModal
+        file={previewFile}
+        rootFolderId={config?.googleDriveFolderId}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
     </div>
   );
 };

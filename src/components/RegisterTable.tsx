@@ -16,12 +16,19 @@ import {
   Save,
   AlertTriangle,
 } from 'lucide-react';
-import { SuratKeluar, KodeSuratType } from '../types';
+import { AppConfig, SuratKeluar, KodeSuratType } from '../types';
 import { BULAN_LIST, TIM_KERJA_OPTIONS } from '../data/bpsClassifications';
 import { formatTanggalIndo, formatTanggalWaktuIndo } from '../utils/storage';
+import {
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
+} from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface RegisterTableProps {
   suratList: SuratKeluar[];
+  config?: AppConfig;
   onClaimKosong: (item: SuratKeluar) => void;
   onUpdateSurat?: (updated: SuratKeluar) => void;
   onDeleteSurat?: (item: SuratKeluar) => void;
@@ -30,6 +37,7 @@ interface RegisterTableProps {
 
 export const RegisterTable: React.FC<RegisterTableProps> = ({
   suratList,
+  config,
   onClaimKosong,
   onUpdateSurat,
   onDeleteSurat,
@@ -44,6 +52,7 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
   
   // Modals state
   const [selectedDetail, setSelectedDetail] = useState<SuratKeluar | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
   const [editingSurat, setEditingSurat] = useState<SuratKeluar | null>(null);
   const [deletingSurat, setDeletingSurat] = useState<SuratKeluar | null>(null);
 
@@ -55,6 +64,18 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
   const [editTanggal, setEditTanggal] = useState('');
   const [editKlasifikasi, setEditKlasifikasi] = useState('');
   const [editStatus, setEditStatus] = useState<'LENGKAP' | 'KOSONG'>('LENGKAP');
+
+  const timKerjaFilterOptions = useMemo(() => {
+    const base =
+      config?.daftarTimKerja && config.daftarTimKerja.length > 0
+        ? config.daftarTimKerja
+        : TIM_KERJA_OPTIONS;
+    const set = new Set<string>(base);
+    suratList.forEach((s) => {
+      if (s.timKerja && s.timKerja.trim()) set.add(s.timKerja.trim());
+    });
+    return Array.from(set);
+  }, [config?.daftarTimKerja, suratList]);
 
   const filteredData = useMemo(() => {
     return suratList
@@ -251,7 +272,7 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
             className="w-full h-10 px-3.5 text-xs rounded-xl border border-slate-300 bg-white font-medium text-slate-700 outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer"
           >
             <option value="all">Tim Kerja: Semua</option>
-            {TIM_KERJA_OPTIONS.map((tim) => (
+            {timKerjaFilterOptions.map((tim) => (
               <option key={tim} value={tim}>
                 {tim}
               </option>
@@ -306,7 +327,7 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
                       </p>
                       <p className="text-xs text-slate-400">
                         {suratList.length === 0
-                          ? 'Data murni bersumber dari database Google Spreadsheet BPS Kalbar (1Pf0RmsY1za...). Gunakan menu Ambil Nomor Baru atau lakukan sinkronisasi.'
+                          ? `Data murni bersumber dari database Google Spreadsheet BPS Kalbar (${config?.spreadsheetId ? `${config.spreadsheetId.slice(0, 12)}...` : 'Keluar26'}). Gunakan menu Ambil Nomor Baru atau lakukan sinkronisasi.`
                           : 'Coba ubah kata kunci pencarian atau sesuaikan opsi filter tim kerja/status.'}
                       </p>
                     </div>
@@ -520,24 +541,39 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
               </div>
 
               {selectedDetail.fileAttachment && (
-                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-blue-700" />
-                    <div>
-                      <div className="font-bold text-slate-800">{selectedDetail.fileAttachment.name}</div>
+                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="w-4 h-4 text-blue-700 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 truncate">{selectedDetail.fileAttachment.name}</div>
                       <div className="text-[10px] text-slate-500 font-mono tabular-nums">
                         {(selectedDetail.fileAttachment.size / 1024).toFixed(1)} KB
                       </div>
                     </div>
                   </div>
-                  {selectedDetail.fileAttachment.dataUrl && (
-                    <a
-                      href={selectedDetail.fileAttachment.dataUrl}
-                      download={selectedDetail.fileAttachment.name}
-                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold text-xs hover:bg-blue-700"
-                    >
-                      Unduh Lampiran
-                    </a>
+                  {resolveDirectFileAccess(selectedDetail.fileAttachment, config?.googleDriveFolderId).hasAnyAccess && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile(selectedDetail.fileAttachment!)}
+                        className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-[#0f4c82] font-bold text-xs hover:bg-blue-50 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Buka File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const res = triggerDirectDownload(selectedDetail.fileAttachment!, config?.googleDriveFolderId);
+                          if (res.ok) onToast(`✔ Mengunduh ${selectedDetail.fileAttachment!.name}`);
+                          else onToast(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh Lampiran</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -761,6 +797,13 @@ export const RegisterTable: React.FC<RegisterTableProps> = ({
           </div>
         </div>
       )}
+
+      <FilePreviewModal
+        file={previewFile}
+        rootFolderId={config?.googleDriveFolderId}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
 
     </div>
   );

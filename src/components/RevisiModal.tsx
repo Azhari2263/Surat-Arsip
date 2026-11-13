@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Upload, X, FileText, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Upload, X, FileText, AlertCircle, Eye } from 'lucide-react';
 import { NaskahDinas } from '../types';
+import { DirectFileInput } from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface RevisiModalProps {
   naskah: NaskahDinas;
@@ -27,6 +29,8 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
     type: string;
     dataUrl?: string;
   } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   const lastCatatan = naskah.riwayatVerifikasi.slice(-1)[0];
 
@@ -34,6 +38,7 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setFormError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       setUploadedFile({
@@ -49,13 +54,18 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadedFile) {
-      alert('Unggah berkas draf Word yang telah diperbaiki.');
+      const msg = 'Unggah berkas draf Word yang telah diperbaiki.';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
     if (!catatanPerbaikan.trim()) {
-      alert('Tuliskan ringkasan bagian apa saja yang telah diperbaiki.');
+      const msg = 'Tuliskan ringkasan bagian apa saja yang telah diperbaiki.';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
+    setFormError(null);
 
     onSubmitRevisi(
       naskah.id,
@@ -91,6 +101,13 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
           
+          {formError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           {/* Kotak Catatan Verifikator yang Harus Diperbaiki */}
           {lastCatatan && (
             <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200">
@@ -122,18 +139,30 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
                 <span className="text-[11px] text-slate-400">Maks. 20 MB</span>
               </label>
             ) : (
-              <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/70 flex items-center justify-between">
+              <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/70 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 truncate">
                   <FileText className="w-4 h-4 text-[#0f4c82] shrink-0" />
                   <span className="font-bold text-slate-800 truncate">{uploadedFile.name}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setUploadedFile(null)}
-                  className="text-slate-400 hover:text-red-600 p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFile(uploadedFile)}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-[#0f4c82] border border-blue-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Buka File sebelum mengirim revisi"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Buka File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadedFile(null)}
+                    className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                    title="Hapus file"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -173,6 +202,12 @@ export const RevisiModal: React.FC<RevisiModalProps> = ({
         </form>
 
       </div>
+
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
     </div>
   );
 };

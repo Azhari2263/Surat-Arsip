@@ -11,10 +11,17 @@ import {
   Layers,
   ShieldCheck,
   Info,
+  Eye,
 } from 'lucide-react';
 import { DAFTAR_PEDOMAN_HUKUM, DAFTAR_TEMPLATE_NASKAH, STANDAR_TATA_NASKAH } from '../data/pedomanData';
 import { DAFTAR_KLASIFIKASI_BPS } from '../data/bpsClassifications';
-import { downloadWordTemplate } from '../utils/templateDownloader';
+import {
+  downloadWordTemplate,
+  generateWordTemplateHtml,
+  getWordTemplateFileName,
+} from '../utils/templateDownloader';
+import { DirectFileInput } from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface PedomanReferensiViewProps {
   onToast: (msg: string) => void;
@@ -24,6 +31,7 @@ export const PedomanReferensiView: React.FC<PedomanReferensiViewProps> = ({ onTo
   const [activeSubTab, setActiveSubTab] = useState<'template' | 'hukum' | 'format' | 'klasifikasi'>('template');
   const [searchKlasifikasi, setSearchKlasifikasi] = useState('');
   const [copiedKode, setCopiedKode] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   const filteredKlasifikasi = DAFTAR_KLASIFIKASI_BPS.filter(
     (k) =>
@@ -161,16 +169,32 @@ export const PedomanReferensiView: React.FC<PedomanReferensiViewProps> = ({ onTo
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100">
+                <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
                   <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewFile({
+                        name: getWordTemplateFileName(tpl),
+                        type: 'application/msword',
+                        htmlContent: generateWordTemplateHtml(tpl),
+                      })
+                    }
+                    className="py-2.5 px-3.5 rounded-xl font-bold text-xs border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0f4c82] flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                    title={`Buka File ${tpl.judul}`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Buka File</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       downloadWordTemplate(tpl);
                       onToast(`✔ Mengunduh ${tpl.judul} (.doc)`);
                     }}
-                    className="w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-[#0f4c82] hover:bg-[#1a6bb5] text-white flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
+                    className="flex-1 py-2.5 px-4 rounded-xl font-bold text-xs bg-[#0f4c82] hover:bg-[#1a6bb5] text-white flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Unduh Template Word (.doc)</span>
+                    <span>Unduh Template (.doc)</span>
                   </button>
                 </div>
               </div>
@@ -354,6 +378,12 @@ export const PedomanReferensiView: React.FC<PedomanReferensiViewProps> = ({ onTo
           </div>
         </div>
       )}
+
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
 
     </div>
   );

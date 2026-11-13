@@ -73,7 +73,7 @@ export const DEFAULT_PEMETAAN_VERIFIKATOR: Record<string, { nama: string; role: 
 };
 
 export const DEFAULT_CONFIG = {
-  spreadsheetId: '1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg',
+  spreadsheetId: '1OPINK5xwi2oFGlZW3GvZi_RuKg18weiDJj53IPDSkXw',
   appsScriptUrl: 'https://script.google.com/macros/s/AKfycbwqkoaf5CgOLS8bnGJHwCacg7nR92XyA68pcqbvOPouMghd9HA7j62Hezojh-wPS0_h/exec',
   sheetName: 'Keluar26',
   nomorBaruMulaiDari: 367,

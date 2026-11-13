@@ -276,6 +276,39 @@ export interface DokumenFinal {
   driveFolderPath?: string;
 }
 
+export interface ArsipDigitalRecord {
+  nomorSuratResmi: string;
+  jenisNaskah: string;
+  perihal: string;
+  unitKerja: string;
+  tanggalPenetapan: string;
+  tipeTandaTangan: TipeTandaTangan;
+  pejabatPenandatangan: string;
+  namaFile: string;
+  tingkatKeamanan: 'Biasa' | 'Terbatas' | 'Rahasia' | 'Sangat Rahasia';
+  lokasiPenyimpanan?: string;
+  waktuUnggah: string;
+  driveFileId?: string;
+  driveUrl?: string;
+  driveFolderPath?: string;
+  nomorRegistrasi?: string;
+}
+
+export interface DriveArchiveFile {
+  fileId: string;
+  fileName: string;
+  fileUrl: string;
+  downloadUrl?: string;
+  mimeType?: string;
+  size?: number;
+  tahun?: string;
+  timKerja?: string;
+  bulan?: string;
+  subfolder?: string;
+  folderPath?: string;
+  updatedAt?: string;
+}
+
 export interface NaskahDinas {
   id: string;
   nomorRegistrasi: string; // e.g. ND-2026-001

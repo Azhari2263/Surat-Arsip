@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Archive, Upload, X, FileText, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Archive, Upload, X, FileText, ShieldCheck, AlertCircle, Eye } from 'lucide-react';
 import { DokumenFinal, NaskahDinas, TipeTandaTangan } from '../types';
+import { DirectFileInput, extractBulanFolder, extractTahun } from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface UnggahFinalModalProps {
   naskah: NaskahDinas;
@@ -36,21 +38,28 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
     type: string;
     dataUrl?: string;
   } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-      alert('Naskah dinas final wajib berupa file PDF (hasil scan bertanda tangan atau dokumen TTE).');
+      const msg = 'Naskah dinas final wajib berupa file PDF (hasil scan bertanda tangan atau dokumen TTE).';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
 
     if (file.size > 25 * 1024 * 1024) {
-      alert('Ukuran file PDF maksimal 25 MB');
+      const msg = 'Ukuran file PDF maksimal 25 MB.';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
 
+    setFormError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       setUploadedPdf({
@@ -66,13 +75,18 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadedPdf) {
-      alert('Silakan pilih dan unggah file PDF naskah dinas final yang telah ditandatangani.');
+      const msg = 'Silakan pilih dan unggah file PDF naskah dinas final yang telah ditandatangani.';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
     if (!nomorSuratResmi.trim()) {
-      alert('Nomor surat dinas resmi wajib diisi.');
+      const msg = 'Nomor surat dinas resmi wajib diisi.';
+      setFormError(msg);
+      onToast(`⚠ ${msg}`);
       return;
     }
+    setFormError(null);
 
     const now = new Date();
     const waktuUnggah = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
@@ -125,6 +139,13 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
           
+          {formError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
             <div className="font-bold text-emerald-950 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-700" />
@@ -230,8 +251,8 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
               <Archive className="w-4 h-4 text-teal-700" />
               <span>Hierarki Google Drive Otomatis:</span>
             </div>
-            <div className="p-2 bg-white rounded-lg border border-teal-100 font-mono text-[11px] text-teal-900 font-semibold">
-              Folder Induk &gt; {new Date().getFullYear()} &gt; {naskah.unitKerja} &gt; Arsip
+            <div className="p-2 bg-white rounded-lg border border-teal-100 font-mono text-[11px] text-teal-900 font-semibold break-words">
+              Folder Induk &gt; {extractTahun(tanggalPenetapan)} &gt; {naskah.unitKerja} &gt; {extractBulanFolder(tanggalPenetapan)} &gt; Arsip
             </div>
             <p className="text-[10px] text-slate-500">
               Dokumen draf akan dipindahkan ke folder <strong>Arsip</strong> resmi, terhubung ke nomor surat dan Sheet ArsipDigital tanpa duplikasi.
@@ -256,18 +277,30 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
                 <span className="text-[11px] text-slate-400">Format PDF (Maks. 25 MB)</span>
               </label>
             ) : (
-              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 flex items-center justify-between">
+              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 truncate">
                   <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
                   <span className="font-bold text-slate-800 truncate">{uploadedPdf.name}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setUploadedPdf(null)}
-                  className="text-slate-400 hover:text-red-600 p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFile(uploadedPdf)}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Buka File PDF sebelum menyimpan"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Buka File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadedPdf(null)}
+                    className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                    title="Hapus file"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -293,6 +326,12 @@ export const UnggahFinalModal: React.FC<UnggahFinalModalProps> = ({
         </form>
 
       </div>
+
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
     </div>
   );
 };

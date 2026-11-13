@@ -5,11 +5,36 @@ import { INITIAL_SURAT_LIST } from '../data/initialData';
 const STORAGE_KEY_SURAT = 'bps_kalbar_surat_keluar_v1';
 const STORAGE_KEY_CONFIG = 'bps_kalbar_app_config_v1';
 
+const LEGACY_SPREADSHEET_ID = '1Pf0RmsY1zaJYds2kN969J01gmhMybkehcAyjwHo4byg';
+
+export function isValidSuratRow(item: Partial<SuratKeluar> | null | undefined): item is SuratKeluar {
+  if (!item) return false;
+  const num = Number(item.nomorUrut);
+  if (item.nomorUrut === null || item.nomorUrut === undefined || isNaN(num) || num <= 0) {
+    return false;
+  }
+  const statusUpper = String(item.status || '').trim().toUpperCase();
+  if (statusUpper === 'STATUS' || String(item.kodeSurat || '').trim().toUpperCase() === 'KODE SURAT') {
+    return false;
+  }
+  return true;
+}
+
 export function getStoredConfig(): AppConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CONFIG);
     if (!raw) return DEFAULT_CONFIG;
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) || {};
+    const cleaned: Record<string, any> = {};
+    Object.keys(parsed).forEach((k) => {
+      if (parsed[k] !== undefined && parsed[k] !== null && parsed[k] !== '') {
+        cleaned[k] = parsed[k];
+      }
+    });
+    if (cleaned.spreadsheetId === LEGACY_SPREADSHEET_ID) {
+      cleaned.spreadsheetId = DEFAULT_CONFIG.spreadsheetId;
+    }
+    return { ...DEFAULT_CONFIG, ...cleaned };
   } catch {
     return DEFAULT_CONFIG;
   }
@@ -29,7 +54,7 @@ export function getStoredSuratList(): SuratKeluar[] {
     if (!Array.isArray(parsed)) {
       return INITIAL_SURAT_LIST;
     }
-    return parsed;
+    return parsed.filter(isValidSuratRow);
   } catch {
     return INITIAL_SURAT_LIST;
   }

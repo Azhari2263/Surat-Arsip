@@ -2,8 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AktivitasNotifikasi,
   AppConfig,
+  ArsipDigitalRecord,
   ChecklistVerifikasi,
   DokumenFinal,
+  DriveArchiveFile,
+  JenisNaskahDinas,
   NaskahDinas,
   RiwayatPenghapusanAudit,
   SubmitResult,
@@ -87,17 +90,209 @@ import {
 } from './utils/apiSync';
 import { ExternalLink, Layers, FileText, Table2, BarChart3, ShieldAlert } from 'lucide-react';
 import { parseCurrentRoute, navigateTo, checkTabPermission } from './utils/router';
-import { uploadDraftToDriveSync, archiveFinalToDriveSync, deleteDriveFilesSync } from './utils/googleDriveSync';
+import {
+  uploadDraftToDriveSync,
+  archiveFinalToDriveSync,
+  deleteDriveFilesSync,
+  generateFinalArsipFileName,
+  getDriveFileUrl,
+  isRealDriveFileId,
+  extractDriveFileId,
+} from './utils/googleDriveSync';
 
 const STORAGE_KEY_AUTH_USER = 'bps_kalbar_active_user_v1';
 const STORAGE_KEY_NOTIFIKASI = 'bps_kalbar_notifikasi_v1';
 const STORAGE_KEY_AUDIT_PENGHAPUSAN = 'bps_kalbar_audit_penghapusan_v1';
+
+const ALL_VERIFIER_ROLES = [
+  'VERIFIKATOR_YUN',
+  'VERIFIKATOR_AMANDA',
+  'VERIFIKATOR_RANIA',
+  'VERIFIKATOR_VIVI',
+  'VERIFIKATOR_AGUS',
+];
+
+const ALL_STANDARD_ROLES = ['ADMIN', 'ARSIPARIS', 'KONSEPTOR', ...ALL_VERIFIER_ROLES];
+
+const VALID_TIPE_AKTIVITAS: TipeAktivitas[] = [
+  'PENGAJUAN_DRAF',
+  'VERIFIKASI_SETUJU',
+  'VERIFIKASI_PERBAIKAN',
+  'VERIFIKASI_TOLAK',
+  'NOMOR_TERBIT',
+  'UNGGAH_FINAL',
+  'BUKA_KEMBALI',
+  'HAPUS_NASKAH',
+  'HAPUS_ARSIP',
+  'PENGATURAN_UPDATE',
+];
+
+function resolveTipeAktivitas(rawTipe: any): TipeAktivitas {
+  const upper = String(rawTipe || '').trim().toUpperCase();
+  if ((VALID_TIPE_AKTIVITAS as string[]).includes(upper)) {
+    return upper as TipeAktivitas;
+  }
+  if (upper.includes('PERBAIKAN') || upper.includes('REVISI')) return 'VERIFIKASI_PERBAIKAN';
+  if (upper.includes('TOLAK')) return 'VERIFIKASI_TOLAK';
+  if (upper.includes('SETUJU')) return 'VERIFIKASI_SETUJU';
+  if (upper.includes('NOMOR')) return 'NOMOR_TERBIT';
+  if (upper.includes('UNGGAH') || upper.includes('FINAL')) return 'UNGGAH_FINAL';
+  if (upper.includes('BUKA')) return 'BUKA_KEMBALI';
+  if (upper.includes('HAPUS') && upper.includes('ARSIP')) return 'HAPUS_ARSIP';
+  if (upper.includes('HAPUS')) return 'HAPUS_NASKAH';
+  if (upper.includes('DRAF') || upper.includes('PENGAJUAN')) return 'PENGAJUAN_DRAF';
+  return 'PENGATURAN_UPDATE';
+}
+
+function mapRemoteLogToNotifikasi(rawLog: any): AktivitasNotifikasi {
+  const tipeAktivitas = resolveTipeAktivitas(rawLog?.tipeAktivitas || rawLog?.tipe || rawLog?.aktivitas);
+  const nomorRegistrasi = rawLog?.nomorRegistrasi && rawLog.nomorRegistrasi !== '-' ? String(rawLog.nomorRegistrasi) : undefined;
+  const nomorSurat = rawLog?.nomorSurat && rawLog.nomorSurat !== '-' ? String(rawLog.nomorSurat) : undefined;
+  const regLabel = nomorRegistrasi ? `: ${nomorRegistrasi}` : '';
+  const suratLabel = nomorSurat ? `: ${nomorSurat}` : regLabel;
+
+  let defaultJudul = `Aktivitas Sistem${suratLabel}`;
+  let defaultRoles: string[] = ['ADMIN', 'ARSIPARIS'];
+  switch (tipeAktivitas) {
+    case 'PENGAJUAN_DRAF':
+      defaultJudul = `Draf Baru Diajukan${regLabel}`;
+      defaultRoles = ['ADMIN', ...ALL_VERIFIER_ROLES];
+      break;
+    case 'VERIFIKASI_SETUJU':
+      defaultJudul = `Draf Disetujui${regLabel}`;
+      defaultRoles = ['ADMIN', 'ARSIPARIS', 'KONSEPTOR'];
+      break;
+    case 'VERIFIKASI_PERBAIKAN':
+      defaultJudul = `Perlu Perbaikan${regLabel}`;
+      defaultRoles = ['ADMIN', 'KONSEPTOR'];
+      break;
+    case 'VERIFIKASI_TOLAK':
+      defaultJudul = `Draf Ditolak${regLabel}`;
+      defaultRoles = ['ADMIN', 'KONSEPTOR'];
+      break;
+    case 'NOMOR_TERBIT':
+      defaultJudul = `Nomor Surat Terbit${suratLabel}`;
+      defaultRoles = ['ADMIN', 'ARSIPARIS', 'KONSEPTOR'];
+      break;
+    case 'UNGGAH_FINAL':
+      defaultJudul = `Arsip Final Tersimpan${suratLabel}`;
+      defaultRoles = ['ADMIN', 'ARSIPARIS', 'KONSEPTOR'];
+      break;
+    case 'BUKA_KEMBALI':
+      defaultJudul = `Pengajuan Dibuka Kembali${regLabel}`;
+      defaultRoles = ['ADMIN', 'KONSEPTOR', ...ALL_VERIFIER_ROLES];
+      break;
+    case 'HAPUS_NASKAH':
+      defaultJudul = `Naskah Dihapus${regLabel}`;
+      defaultRoles = ['ADMIN'];
+      break;
+    case 'HAPUS_ARSIP':
+      defaultJudul = `Arsip Dihapus${suratLabel}`;
+      defaultRoles = ['ADMIN', 'ARSIPARIS'];
+      break;
+    case 'PENGATURAN_UPDATE':
+      defaultJudul = 'Konfigurasi Sistem Diperbarui';
+      defaultRoles = ['ADMIN'];
+      break;
+  }
+
+  const targetRoles =
+    Array.isArray(rawLog?.targetRoles) && rawLog.targetRoles.filter(Boolean).length > 0
+      ? rawLog.targetRoles.filter(Boolean)
+      : defaultRoles;
+
+  return {
+    id: String(rawLog?.id || `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+    waktu: String(rawLog?.waktu || 'Baru saja'),
+    judul: String(rawLog?.judul || defaultJudul),
+    deskripsi: String(rawLog?.deskripsi || rawLog?.pesan || rawLog?.keterangan || 'Pembaruan aktivitas tata kelola naskah dinas.'),
+    pelaku: String(rawLog?.pelaku || rawLog?.aktor || rawLog?.pengguna || 'Petugas BPS'),
+    rolePelaku: String(rawLog?.rolePelaku || rawLog?.roleAktor || rawLog?.role || '-'),
+    naskahId: rawLog?.naskahId ? String(rawLog.naskahId) : undefined,
+    nomorRegistrasi,
+    nomorSurat,
+    tipeAktivitas,
+    targetRoles,
+    targetKonseptor: rawLog?.targetKonseptor ? String(rawLog.targetKonseptor) : undefined,
+    dibaca: Boolean(rawLog?.dibaca),
+  };
+}
+
+function normalizeMatchToken(val?: string): string {
+  return String(val || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function mergeRemoteNaskahPreservingLocalFiles(
+  remoteList: NaskahDinas[],
+  localList: NaskahDinas[],
+  rootFolderId?: string
+): NaskahDinas[] {
+  const localById = new Map<string, NaskahDinas>();
+  const localByReg = new Map<string, NaskahDinas>();
+  localList.forEach((item) => {
+    localById.set(item.id, item);
+    if (item.nomorRegistrasi) localByReg.set(item.nomorRegistrasi, item);
+  });
+
+  return remoteList.map((remote) => {
+    const local = localById.get(remote.id) || localByReg.get(remote.nomorRegistrasi);
+    const validRemoteDraftId = extractDriveFileId(
+      remote.driveDraftFileId || remote.driveDraftUrl,
+      rootFolderId
+    );
+    const validLocalDraftId = extractDriveFileId(
+      local?.driveDraftFileId || local?.driveDraftUrl,
+      rootFolderId
+    );
+    const resolvedDraftId = validRemoteDraftId || validLocalDraftId || undefined;
+
+    const mergedDrafFile =
+      remote.drafFile && !remote.drafFile.dataUrl && local?.drafFile?.dataUrl && local.drafFile.name === remote.drafFile.name
+        ? { ...remote.drafFile, dataUrl: local.drafFile.dataUrl }
+        : remote.drafFile;
+
+    let mergedDokumenFinal = remote.dokumenFinal;
+    if (remote.dokumenFinal) {
+      const validRemoteFinalId = extractDriveFileId(
+        remote.dokumenFinal.driveFileId || remote.dokumenFinal.driveUrl,
+        rootFolderId
+      );
+      const validLocalFinalId = extractDriveFileId(
+        local?.dokumenFinal?.driveFileId || local?.dokumenFinal?.driveUrl,
+        rootFolderId
+      );
+      const resolvedFinalId = validRemoteFinalId || validLocalFinalId || undefined;
+      mergedDokumenFinal = {
+        ...remote.dokumenFinal,
+        dataUrl:
+          remote.dokumenFinal.dataUrl ||
+          (local?.dokumenFinal?.dataUrl && local.dokumenFinal.namaFile === remote.dokumenFinal.namaFile
+            ? local.dokumenFinal.dataUrl
+            : remote.dokumenFinal.dataUrl),
+        driveFileId: resolvedFinalId,
+        driveUrl: resolvedFinalId ? getDriveFileUrl(resolvedFinalId, rootFolderId) : undefined,
+      };
+    }
+
+    return {
+      ...remote,
+      drafFile: mergedDrafFile,
+      dokumenFinal: mergedDokumenFinal,
+      driveDraftFileId: resolvedDraftId,
+      driveDraftUrl: resolvedDraftId ? getDriveFileUrl(resolvedDraftId, rootFolderId) : undefined,
+    };
+  });
+}
 
 export default function App() {
   // Config & Data state
   const [config, setConfig] = useState<AppConfig>(getStoredConfig);
   const [suratList, setSuratList] = useState<SuratKeluar[]>(getStoredSuratList);
   const [naskahList, setNaskahList] = useState<NaskahDinas[]>(getStoredNaskahList);
+  const [arsipSheetList, setArsipSheetList] = useState<ArsipDigitalRecord[]>([]);
+  const [driveFilesList, setDriveFilesList] = useState<DriveArchiveFile[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // User Management State (bersumber dari Google Spreadsheet sheet Pengguna)
@@ -152,7 +347,12 @@ export default function App() {
   const [notifications, setNotifications] = useState<AktivitasNotifikasi[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_NOTIFIKASI);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item) => mapRemoteLogToNotifikasi(item));
+        }
+      }
     } catch {}
     return [
       {
@@ -163,7 +363,7 @@ export default function App() {
         pelaku: 'Sistem BPS Kalbar',
         rolePelaku: 'ADMIN',
         tipeAktivitas: 'PENGATURAN_UPDATE',
-        targetRoles: ['ADMIN', 'ARSIPARIS', 'KONSEPTOR', 'VERIFIKATOR_IPDS', 'VERIFIKATOR_DISTRIBUSI', 'VERIFIKATOR_PRODUKSI', 'VERIFIKATOR_NERACA', 'VERIFIKATOR_SOSIAL', 'VERIFIKATOR_UMUM'],
+        targetRoles: ALL_STANDARD_ROLES,
         dibaca: false,
       },
     ];
@@ -178,15 +378,18 @@ export default function App() {
     return [];
   });
 
-  // Add Notification Helper (Local state + Google Spreadsheet LogAktivitas sync)
+  // Add Notification Helper (Local state + optional Google Spreadsheet LogAktivitas sync)
   const addActivityNotification = (
-    notifData: Omit<AktivitasNotifikasi, 'id' | 'waktu' | 'dibaca'>
+    notifData: Omit<AktivitasNotifikasi, 'id' | 'waktu' | 'dibaca'>,
+    options?: { syncRemote?: boolean }
   ) => {
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`;
+    const cleanTargetRoles = Array.from(new Set((notifData.targetRoles || []).filter(Boolean)));
     const newNotif: AktivitasNotifikasi = {
       ...notifData,
-      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      targetRoles: cleanTargetRoles.length > 0 ? cleanTargetRoles : ['ADMIN'],
+      id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       waktu: timeStr,
       dibaca: false,
     };
@@ -199,7 +402,7 @@ export default function App() {
       return updated;
     });
 
-    if (config.appsScriptUrl) {
+    if (options?.syncRemote !== false && config.appsScriptUrl) {
       syncLogActivity(newNotif, config).catch(() => {});
     }
   };
@@ -240,10 +443,22 @@ export default function App() {
         const res = await fetchSpreadsheetData(config);
         if (!isMounted || !res.success) return;
 
-        // Remote Config Auto-Sync
-        if (res.remoteConfig) {
+        // Remote Config Auto-Sync (hanya gabungkan kunci bernilai valid)
+        if (res.remoteConfig && Object.keys(res.remoteConfig).length > 0) {
           setConfig((prev) => {
-            const merged = { ...prev, ...res.remoteConfig };
+            const safeRemote: Partial<AppConfig> = {};
+            const rc = res.remoteConfig!;
+            if (rc.nomorBaruMulaiDari && rc.nomorBaruMulaiDari > 0) safeRemote.nomorBaruMulaiDari = rc.nomorBaruMulaiDari;
+            if (rc.kodeUnit && rc.kodeUnit.trim()) safeRemote.kodeUnit = rc.kodeUnit.trim();
+            if (rc.whatsappAdmin && rc.whatsappAdmin.trim()) safeRemote.whatsappAdmin = rc.whatsappAdmin.trim();
+            if (rc.enableMondayRule !== undefined) safeRemote.enableMondayRule = rc.enableMondayRule;
+            if (rc.googleDriveFolderId && rc.googleDriveFolderId.trim()) safeRemote.googleDriveFolderId = rc.googleDriveFolderId.trim();
+            if (rc.syncIntervalSeconds && rc.syncIntervalSeconds >= 5) safeRemote.syncIntervalSeconds = rc.syncIntervalSeconds;
+            if (Array.isArray(rc.daftarTimKerja) && rc.daftarTimKerja.length > 0) safeRemote.daftarTimKerja = rc.daftarTimKerja;
+            if (rc.pemetaanVerifikator && Object.keys(rc.pemetaanVerifikator).length > 0) safeRemote.pemetaanVerifikator = rc.pemetaanVerifikator;
+            if (rc.lastConfigUpdate) safeRemote.lastConfigUpdate = rc.lastConfigUpdate;
+            if (rc.updatedBy) safeRemote.updatedBy = rc.updatedBy;
+            const merged = { ...prev, ...safeRemote };
             saveStoredConfig(merged);
             return merged;
           });
@@ -253,6 +468,14 @@ export default function App() {
         if (Array.isArray(res.suratList)) {
           setSuratList(res.suratList);
           saveStoredSuratList(res.suratList);
+        }
+
+        // Arsip Digital & Google Drive Archive Auto-Sync
+        if (Array.isArray(res.arsipList)) {
+          setArsipSheetList(res.arsipList);
+        }
+        if (Array.isArray(res.driveFiles)) {
+          setDriveFilesList(res.driveFiles);
         }
 
         // Users Auto-Sync
@@ -268,7 +491,7 @@ export default function App() {
           });
         }
 
-        // Naskah Dinas Auto-Sync with Real-Time Activity Notification Generator
+        // Naskah Dinas Auto-Sync with Real-Time Activity Notification Generator (local-only to prevent log spam)
         if (Array.isArray(res.naskahList)) {
           const freshList = res.naskahList;
           const prevMap = previousNaskahMapRef.current;
@@ -277,20 +500,21 @@ export default function App() {
             freshList.forEach((freshItem) => {
               const prevItem = prevMap.get(freshItem.id);
               if (!prevItem) {
-                // New draft submitted by another user
-                addActivityNotification({
-                  judul: `Draf Baru Diajukan: ${freshItem.nomorRegistrasi}`,
-                  deskripsi: `${freshItem.namaKonseptor} (${freshItem.unitKerja}) mengajukan draf "${freshItem.perihal}".`,
-                  pelaku: freshItem.namaKonseptor,
-                  rolePelaku: 'KONSEPTOR',
-                  naskahId: freshItem.id,
-                  nomorRegistrasi: freshItem.nomorRegistrasi,
-                  tipeAktivitas: 'PENGAJUAN_DRAF',
-                  targetRoles: ['ADMIN', freshItem.roleVerifikatorDitunjuk],
-                  targetKonseptor: freshItem.namaKonseptor,
-                });
+                addActivityNotification(
+                  {
+                    judul: `Draf Baru Diajukan: ${freshItem.nomorRegistrasi}`,
+                    deskripsi: `${freshItem.namaKonseptor} (${freshItem.unitKerja}) mengajukan draf "${freshItem.perihal}".`,
+                    pelaku: freshItem.namaKonseptor,
+                    rolePelaku: 'KONSEPTOR',
+                    naskahId: freshItem.id,
+                    nomorRegistrasi: freshItem.nomorRegistrasi,
+                    tipeAktivitas: 'PENGAJUAN_DRAF',
+                    targetRoles: ['ADMIN', freshItem.roleVerifikatorDitunjuk],
+                    targetKonseptor: freshItem.namaKonseptor,
+                  },
+                  { syncRemote: false }
+                );
               } else if (prevItem.status !== freshItem.status) {
-                // Status changed by another user
                 let notifType: TipeAktivitas = 'VERIFIKASI_SETUJU';
                 let title = `Status Naskah Berubah: ${freshItem.nomorRegistrasi}`;
                 let desc = `Status naskah "${freshItem.perihal}" berubah menjadi ${freshItem.status}`;
@@ -313,42 +537,62 @@ export default function App() {
                   desc = `Nomor resmi ${freshItem.nomorSuratDipesan} telah terbit. Silakan selesaikan TTD dan arsip.`;
                 } else if (freshItem.status === 'SELESAI_ARSIP' || freshItem.status === 'FINAL_DIARSIPKAN') {
                   notifType = 'UNGGAH_FINAL';
-                  title = `Arsip Final Tersimpan: ${freshItem.dokumenFinal?.nomorSuratResmi || freshItem.nomorRegistrasi}`;
+                  title = `Arsip Final Tersimpan: ${freshItem.dokumenFinal?.nomorSuratResmi || freshItem.nomorSuratDipesan || freshItem.nomorRegistrasi}`;
                   desc = `Dokumen final telah diarsipkan ke Google Drive & basis data BPS.`;
                 }
 
-                addActivityNotification({
-                  judul: title,
-                  deskripsi: desc,
-                  pelaku: freshItem.verifikatorDitunjuk || 'Petugas BPS',
-                  rolePelaku: freshItem.roleVerifikatorDitunjuk || 'VERIFIKATOR',
-                  naskahId: freshItem.id,
-                  nomorRegistrasi: freshItem.nomorRegistrasi,
-                  nomorSurat: freshItem.nomorSuratDipesan,
-                  tipeAktivitas: notifType,
-                  targetRoles: ['ADMIN', 'ARSIPARIS', freshItem.roleVerifikatorDitunjuk],
-                  targetKonseptor: freshItem.namaKonseptor,
-                });
+                addActivityNotification(
+                  {
+                    judul: title,
+                    deskripsi: desc,
+                    pelaku: freshItem.verifikatorDitunjuk || 'Petugas BPS',
+                    rolePelaku: freshItem.roleVerifikatorDitunjuk || 'VERIFIKATOR',
+                    naskahId: freshItem.id,
+                    nomorRegistrasi: freshItem.nomorRegistrasi,
+                    nomorSurat: freshItem.nomorSuratDipesan,
+                    tipeAktivitas: notifType,
+                    targetRoles: ['ADMIN', 'ARSIPARIS', freshItem.roleVerifikatorDitunjuk],
+                    targetKonseptor: freshItem.namaKonseptor,
+                  },
+                  { syncRemote: false }
+                );
               }
             });
           }
 
-          // Update map
-          const newMap = new Map<string, NaskahDinas>();
-          freshList.forEach((item) => newMap.set(item.id, item));
-          previousNaskahMapRef.current = newMap;
-
-          setNaskahList(freshList);
-          saveStoredNaskahList(freshList);
+          setNaskahList((prev) => {
+            const merged = mergeRemoteNaskahPreservingLocalFiles(
+              freshList,
+              prev,
+              config.googleDriveFolderId
+            );
+            const newMap = new Map<string, NaskahDinas>();
+            merged.forEach((item) => newMap.set(item.id, item));
+            previousNaskahMapRef.current = newMap;
+            saveStoredNaskahList(merged);
+            return merged;
+          });
         }
 
-        // Merge activity logs if available from Google Sheets
+        // Merge activity logs if available from Google Sheets (with proper field mapping & deduplication)
         if (Array.isArray(res.activityLogs) && res.activityLogs.length > 0) {
           setNotifications((prevNotifs) => {
             const existingIds = new Set(prevNotifs.map((n) => n.id));
-            const newNotifs = res.activityLogs!.filter((n) => !existingIds.has(n.id));
-            if (newNotifs.length > 0) {
-              const combined = [...newNotifs, ...prevNotifs].slice(0, 100);
+            const existingSignatures = new Set(
+              prevNotifs.map((n) => `${n.tipeAktivitas}|${n.nomorRegistrasi || ''}|${n.nomorSurat || ''}|${n.waktu}`)
+            );
+            const mappedNew = res.activityLogs!
+              .map((raw) => mapRemoteLogToNotifikasi(raw))
+              .filter((n) => {
+                if (existingIds.has(n.id)) return false;
+                const sig = `${n.tipeAktivitas}|${n.nomorRegistrasi || ''}|${n.nomorSurat || ''}|${n.waktu}`;
+                if (existingSignatures.has(sig)) return false;
+                existingIds.add(n.id);
+                existingSignatures.add(sig);
+                return true;
+              });
+            if (mappedNew.length > 0) {
+              const combined = [...mappedNew, ...prevNotifs].slice(0, 100);
               try {
                 localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(combined));
               } catch {}
@@ -527,11 +771,261 @@ export default function App() {
     ).length;
   }, [naskahList, currentUser]);
 
-  const totalArsipCount = useMemo(() => {
-    return naskahList.filter(
-      (n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN'
+  // Gabungkan NaskahDinas, Sheet ArsipDigital, dan Drive Archive Files agar Arsip Digital selalu sinkron dan lengkap
+  const { mergedNaskahForArsipView, totalArsipCount } = useMemo(() => {
+    const matchedArsipIndices = new Set<number>();
+    const matchedDriveIndices = new Set<number>();
+
+    const findMatchingDriveIndex = (
+      driveFileId?: string,
+      nomorSurat?: string,
+      perihal?: string,
+      unitKerja?: string
+    ): number => {
+      if (isRealDriveFileId(driveFileId)) {
+        const idxById = driveFilesList.findIndex((f) => f.fileId === driveFileId);
+        if (idxById >= 0) return idxById;
+      }
+      const normNomor = normalizeMatchToken(nomorSurat);
+      const normPerihal = normalizeMatchToken(perihal);
+      const normUnit = normalizeMatchToken(unitKerja);
+      return driveFilesList.findIndex((f, idx) => {
+        if (matchedDriveIndices.has(idx)) return false;
+        const normFile = normalizeMatchToken(f.fileName);
+        if (normNomor && normNomor.length >= 6 && normFile.includes(normNomor)) return true;
+        if (normPerihal && normPerihal.length >= 6 && normFile.includes(normPerihal)) {
+          const normFileUnit = normalizeMatchToken(f.timKerja || f.folderPath);
+          if (!normUnit || !normFileUnit || normFileUnit.includes(normUnit)) return true;
+        }
+        return false;
+      });
+    };
+
+    const enrichedList: NaskahDinas[] = naskahList.map((n) => {
+      const isArchived =
+        n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN' || Boolean(n.dokumenFinal);
+      if (!isArchived) return n;
+
+      const nomorCandidate = n.dokumenFinal?.nomorSuratResmi || n.nomorSuratDipesan || n.nomorRegistrasi;
+      const arsipIdx = arsipSheetList.findIndex((a, idx) => {
+        if (matchedArsipIndices.has(idx)) return false;
+        if (
+          isRealDriveFileId(n.dokumenFinal?.driveFileId) &&
+          a.driveFileId === n.dokumenFinal?.driveFileId
+        ) {
+          return true;
+        }
+        const aNo = normalizeMatchToken(a.nomorSuratResmi);
+        const nNo = normalizeMatchToken(nomorCandidate);
+        if (aNo && nNo && aNo === nNo) return true;
+        return (
+          normalizeMatchToken(a.perihal) === normalizeMatchToken(n.perihal) &&
+          normalizeMatchToken(a.unitKerja) === normalizeMatchToken(n.unitKerja)
+        );
+      });
+      const arsipRec = arsipIdx >= 0 ? arsipSheetList[arsipIdx] : undefined;
+      if (arsipIdx >= 0) matchedArsipIndices.add(arsipIdx);
+
+      const driveIdx = findMatchingDriveIndex(
+        n.dokumenFinal?.driveFileId || arsipRec?.driveFileId,
+        nomorCandidate,
+        n.perihal,
+        n.unitKerja
+      );
+      const driveFile = driveIdx >= 0 ? driveFilesList[driveIdx] : undefined;
+      if (driveIdx >= 0) matchedDriveIndices.add(driveIdx);
+
+      const existingDoc = n.dokumenFinal;
+      const realDriveId =
+        extractDriveFileId(existingDoc?.driveFileId || existingDoc?.driveUrl, config.googleDriveFolderId) ||
+        extractDriveFileId(arsipRec?.driveFileId || arsipRec?.driveUrl, config.googleDriveFolderId) ||
+        extractDriveFileId(driveFile?.fileId || driveFile?.fileUrl, config.googleDriveFolderId) ||
+        undefined;
+
+      const resolvedDriveUrl = realDriveId
+        ? getDriveFileUrl(realDriveId, config.googleDriveFolderId)
+        : undefined;
+
+      const tglPenetapan =
+        existingDoc?.tanggalPenetapan ||
+        arsipRec?.tanggalPenetapan ||
+        n.tanggalSurat ||
+        n.tanggalPengajuan ||
+        '';
+
+      const mergedDoc: DokumenFinal = {
+        nomorSuratResmi:
+          existingDoc?.nomorSuratResmi || arsipRec?.nomorSuratResmi || nomorCandidate,
+        perihal: existingDoc?.perihal || arsipRec?.perihal || n.perihal,
+        jenisNaskah: existingDoc?.jenisNaskah || arsipRec?.jenisNaskah || n.jenisNaskah,
+        unitKerja: existingDoc?.unitKerja || arsipRec?.unitKerja || n.unitKerja,
+        tanggalPenetapan: tglPenetapan,
+        tipeTandaTangan: existingDoc?.tipeTandaTangan || arsipRec?.tipeTandaTangan || 'TTE',
+        pejabatPenandatangan:
+          existingDoc?.pejabatPenandatangan ||
+          arsipRec?.pejabatPenandatangan ||
+          'Kepala BPS Provinsi Kalimantan Barat',
+        namaFile:
+          existingDoc?.namaFile ||
+          driveFile?.fileName ||
+          arsipRec?.namaFile ||
+          generateFinalArsipFileName(
+            nomorCandidate,
+            n.perihal,
+            tglPenetapan || n.waktuUpdate || ''
+          ),
+        ukuranFile: existingDoc?.ukuranFile || driveFile?.size || 0,
+        dataUrl: existingDoc?.dataUrl,
+        waktuUnggah:
+          existingDoc?.waktuUnggah ||
+          arsipRec?.waktuUnggah ||
+          n.waktuUpdate ||
+          n.tanggalPengajuan ||
+          '',
+        klasifikasiArsip:
+          existingDoc?.klasifikasiArsip || n.klasifikasiArsip || '-',
+        kodeUnitArsip:
+          existingDoc?.kodeUnitArsip || config.kodeUnit || '6100',
+        tingkatKeamanan: existingDoc?.tingkatKeamanan || arsipRec?.tingkatKeamanan || 'Biasa',
+        lokasiPenyimpanan:
+          existingDoc?.lokasiPenyimpanan ||
+          arsipRec?.lokasiPenyimpanan ||
+          'Google Drive Arsip Digital',
+        driveFileId: realDriveId,
+        driveUrl: resolvedDriveUrl,
+        driveFolderPath:
+          existingDoc?.driveFolderPath || arsipRec?.driveFolderPath || driveFile?.folderPath,
+      };
+
+      return {
+        ...n,
+        dokumenFinal: mergedDoc,
+      };
+    });
+
+    // Tambahkan entri Sheet ArsipDigital yang tidak memiliki pasangan langsung di NaskahDinas
+    arsipSheetList.forEach((arsip, idx) => {
+      if (matchedArsipIndices.has(idx)) return;
+      const driveIdx = findMatchingDriveIndex(
+        arsip.driveFileId,
+        arsip.nomorSuratResmi,
+        arsip.perihal,
+        arsip.unitKerja
+      );
+      const driveFile = driveIdx >= 0 ? driveFilesList[driveIdx] : undefined;
+      if (driveIdx >= 0) matchedDriveIndices.add(driveIdx);
+
+      const realDriveId =
+        extractDriveFileId(arsip.driveFileId || arsip.driveUrl, config.googleDriveFolderId) ||
+        extractDriveFileId(driveFile?.fileId || driveFile?.fileUrl, config.googleDriveFolderId) ||
+        undefined;
+
+      const resolvedFileName = driveFile?.fileName || arsip.namaFile;
+
+      enrichedList.push({
+        id: `arsip-sheet-${idx}-${normalizeMatchToken(arsip.nomorSuratResmi) || 'item'}`,
+        nomorRegistrasi: arsip.nomorRegistrasi || arsip.nomorSuratResmi,
+        jenisNaskah: (arsip.jenisNaskah || 'Surat Dinas Biasa') as JenisNaskahDinas,
+        perihal: arsip.perihal,
+        unitKerja: arsip.unitKerja || driveFile?.timKerja || 'Tim Umum & Humas',
+        namaKonseptor: 'Pegawai BPS Kalbar',
+        tanggalPengajuan: arsip.tanggalPenetapan || arsip.waktuUnggah || '',
+        tanggalSurat: arsip.tanggalPenetapan,
+        verifikatorDitunjuk: 'Arsiparis BPS Kalbar',
+        roleVerifikatorDitunjuk: 'ARSIPARIS',
+        status: 'SELESAI_ARSIP',
+        klasifikasiArsip: '-',
+        nomorSuratDipesan: arsip.nomorSuratResmi,
+        drafFile: {
+          name: resolvedFileName,
+          size: driveFile?.size || 0,
+          type: 'application/pdf',
+        },
+        riwayatVersi: [],
+        riwayatVerifikasi: [],
+        waktuUpdate: arsip.waktuUnggah || arsip.tanggalPenetapan || '',
+        dokumenFinal: {
+          nomorSuratResmi: arsip.nomorSuratResmi,
+          perihal: arsip.perihal,
+          jenisNaskah: arsip.jenisNaskah || 'Surat Dinas Biasa',
+          unitKerja: arsip.unitKerja || driveFile?.timKerja || 'Tim Umum & Humas',
+          tanggalPenetapan: arsip.tanggalPenetapan,
+          tipeTandaTangan: arsip.tipeTandaTangan || 'TTE',
+          pejabatPenandatangan:
+            arsip.pejabatPenandatangan || 'Kepala BPS Provinsi Kalimantan Barat',
+          namaFile: resolvedFileName,
+          ukuranFile: driveFile?.size || 0,
+          waktuUnggah: arsip.waktuUnggah || arsip.tanggalPenetapan,
+          klasifikasiArsip: '-',
+          kodeUnitArsip: config.kodeUnit || '6100',
+          tingkatKeamanan: arsip.tingkatKeamanan || 'Biasa',
+          lokasiPenyimpanan: arsip.lokasiPenyimpanan || 'Google Drive Arsip Digital',
+          driveFileId: realDriveId,
+          driveUrl: realDriveId ? getDriveFileUrl(realDriveId, config.googleDriveFolderId) : undefined,
+          driveFolderPath: arsip.driveFolderPath || driveFile?.folderPath,
+        },
+      });
+    });
+
+    // Tambahkan file Google Drive Arsip yang berdiri sendiri agar tetap tampil di Arsip Digital
+    driveFilesList.forEach((file, idx) => {
+      if (matchedDriveIndices.has(idx)) return;
+      const cleanedTitle = file.fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
+      const dateDisplay = file.updatedAt || '';
+
+      enrichedList.push({
+        id: `drive-only-${file.fileId}`,
+        nomorRegistrasi: file.fileName,
+        jenisNaskah: 'Surat Dinas Biasa',
+        perihal: cleanedTitle || file.fileName,
+        unitKerja: file.timKerja || 'Tim Umum & Humas',
+        namaKonseptor: 'Arsip Google Drive',
+        tanggalPengajuan: dateDisplay,
+        tanggalSurat: dateDisplay,
+        verifikatorDitunjuk: 'Arsiparis BPS Kalbar',
+        roleVerifikatorDitunjuk: 'ARSIPARIS',
+        status: 'SELESAI_ARSIP',
+        klasifikasiArsip: '-',
+        nomorSuratDipesan: cleanedTitle || file.fileName,
+        drafFile: {
+          name: file.fileName,
+          size: file.size || 0,
+          type: file.mimeType || 'application/pdf',
+        },
+        riwayatVersi: [],
+        riwayatVerifikasi: [],
+        waktuUpdate: dateDisplay,
+        dokumenFinal: {
+          nomorSuratResmi: cleanedTitle || file.fileName,
+          perihal: cleanedTitle || file.fileName,
+          jenisNaskah: 'Surat Dinas Biasa',
+          unitKerja: file.timKerja || 'Tim Umum & Humas',
+          tanggalPenetapan: dateDisplay,
+          tipeTandaTangan: 'TTE',
+          pejabatPenandatangan: 'Kepala BPS Provinsi Kalimantan Barat',
+          namaFile: file.fileName,
+          ukuranFile: file.size || 0,
+          waktuUnggah: dateDisplay,
+          klasifikasiArsip: '-',
+          kodeUnitArsip: config.kodeUnit || '6100',
+          tingkatKeamanan: 'Biasa',
+          lokasiPenyimpanan: file.folderPath || 'Google Drive Arsip Digital',
+          driveFileId: file.fileId,
+          driveUrl: getDriveFileUrl(file.fileId, config.googleDriveFolderId) || file.fileUrl,
+          driveFolderPath: file.folderPath,
+        },
+      });
+    });
+
+    const archivedCount = enrichedList.filter(
+      (n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN' || Boolean(n.dokumenFinal)
     ).length;
-  }, [naskahList]);
+
+    return {
+      mergedNaskahForArsipView: enrichedList,
+      totalArsipCount: archivedCount,
+    };
+  }, [naskahList, arsipSheetList, driveFilesList, config.kodeUnit]);
 
   // Saring notifikasi yang relevan dengan peran dan penugasan pengguna saat ini
   const userFilteredNotifications = useMemo(() => {
@@ -597,7 +1091,7 @@ export default function App() {
     // Upload draft to Google Drive structured hierarchy (Tahun > Tim Kerja > Bulan > Draft)
     uploadDraftToDriveSync(newNaskah, config, newNaskah.drafFile)
       .then((driveRes) => {
-        if (driveRes.success) {
+        if (driveRes.success && isRealDriveFileId(driveRes.fileId, config.googleDriveFolderId)) {
           const withDrive: NaskahDinas = {
             ...newNaskah,
             driveDraftFileId: driveRes.fileId,
@@ -605,13 +1099,24 @@ export default function App() {
             driveDraftFolderPath: driveRes.folderPath,
           };
           setNaskahList((prev) => {
-            const next = prev.map((item) => (item.id === newNaskah.id ? withDrive : item));
+            const next = prev.map((item) =>
+              item.id === newNaskah.id
+                ? {
+                    ...item,
+                    driveDraftFileId: driveRes.fileId,
+                    driveDraftUrl: driveRes.fileUrl,
+                    driveDraftFolderPath: driveRes.folderPath,
+                  }
+                : item
+            );
             saveStoredNaskahList(next);
             return next;
           });
           if (config.appsScriptUrl) {
             sendAppsScriptAction('saveNaskah', withDrive, config).catch(() => {});
           }
+        } else if (config.appsScriptUrl) {
+          sendAppsScriptAction('saveNaskah', newNaskah, config).catch(() => {});
         }
       })
       .catch(() => {
@@ -677,7 +1182,7 @@ export default function App() {
       naskahId: changedItem?.id,
       nomorRegistrasi: changedItem?.nomorRegistrasi,
       tipeAktivitas: notifTipe,
-      targetRoles: ['ADMIN', changedItem?.roleVerifikatorDitunjuk || ''],
+      targetRoles: ['ADMIN', changedItem?.roleVerifikatorDitunjuk || ''].filter(Boolean),
       targetKonseptor: changedItem?.namaKonseptor,
     });
   };
@@ -802,7 +1307,7 @@ export default function App() {
         naskahId,
         nomorRegistrasi: updatedNaskah?.nomorRegistrasi,
         tipeAktivitas: 'BUKA_KEMBALI',
-        targetRoles: ['ADMIN', updatedNaskah?.roleVerifikatorDitunjuk || ''],
+        targetRoles: ['ADMIN', updatedNaskah?.roleVerifikatorDitunjuk || ''].filter(Boolean),
         targetKonseptor: updatedNaskah?.namaKonseptor,
       });
 
@@ -846,7 +1351,7 @@ export default function App() {
       // Re-upload/update draft in Google Drive without duplicate files
       uploadDraftToDriveSync(changedItem, config, file)
         .then((driveRes) => {
-          if (driveRes.success) {
+          if (driveRes.success && isRealDriveFileId(driveRes.fileId, config.googleDriveFolderId)) {
             const withDrive: NaskahDinas = {
               ...changedItem,
               driveDraftFileId: driveRes.fileId,
@@ -854,13 +1359,24 @@ export default function App() {
               driveDraftFolderPath: driveRes.folderPath,
             };
             setNaskahList((prev) => {
-              const next = prev.map((item) => (item.id === naskahId ? withDrive : item));
+              const next = prev.map((item) =>
+                item.id === naskahId
+                  ? {
+                      ...item,
+                      driveDraftFileId: driveRes.fileId,
+                      driveDraftUrl: driveRes.fileUrl,
+                      driveDraftFolderPath: driveRes.folderPath,
+                    }
+                  : item
+              );
               saveStoredNaskahList(next);
               return next;
             });
             if (config.appsScriptUrl) {
               sendAppsScriptAction('saveNaskah', withDrive, config).catch(() => {});
             }
+          } else if (config.appsScriptUrl) {
+            sendAppsScriptAction('saveNaskah', changedItem, config).catch(() => {});
           }
         })
         .catch(() => {
@@ -881,6 +1397,7 @@ export default function App() {
       currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
     );
     setNaskahList(updatedList);
+    saveStoredNaskahList(updatedList);
     handleNavigateTab('arsip');
 
     const changedItem = updatedList.find((n) => n.id === naskahId);
@@ -898,7 +1415,7 @@ export default function App() {
       nomorRegistrasi: targetNaskah?.nomorRegistrasi,
       nomorSurat: dokumenFinal.nomorSuratResmi,
       tipeAktivitas: 'UNGGAH_FINAL',
-      targetRoles: ['ADMIN', 'ARSIPARIS', targetNaskah?.roleVerifikatorDitunjuk || ''],
+      targetRoles: ['ADMIN', 'ARSIPARIS', targetNaskah?.roleVerifikatorDitunjuk || ''].filter(Boolean),
       targetKonseptor: targetNaskah?.namaKonseptor,
     });
 
@@ -906,26 +1423,36 @@ export default function App() {
     if (targetNaskah) {
       archiveFinalToDriveSync(targetNaskah, dokumenFinal, config)
         .then((driveRes) => {
-          if (driveRes.success) {
+          if (driveRes.success && isRealDriveFileId(driveRes.fileId, config.googleDriveFolderId)) {
             const driveUpdatedDoc: DokumenFinal = {
               ...dokumenFinal,
               driveFileId: driveRes.fileId,
               driveUrl: driveRes.fileUrl,
               driveFolderPath: driveRes.folderPath,
             };
-            const { updatedList: finalizedList } = arsipkanNaskahFinal(
-              naskahId,
-              driveUpdatedDoc,
-              naskahList,
-              currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
-            );
-            setNaskahList(finalizedList);
-            saveStoredNaskahList(finalizedList);
+            let syncedNaskah: NaskahDinas | undefined;
+            setNaskahList((prev) => {
+              const { updatedList: finalizedList, updatedNaskah } = arsipkanNaskahFinal(
+                naskahId,
+                driveUpdatedDoc,
+                prev,
+                currentUser ? { nama: currentUser.nama, role: currentUser.role } : undefined
+              );
+              syncedNaskah = updatedNaskah;
+              saveStoredNaskahList(finalizedList);
+              return finalizedList;
+            });
 
-            const updatedNaskah = finalizedList.find((n) => n.id === naskahId);
-            if (updatedNaskah && config.appsScriptUrl) {
+            if (config.appsScriptUrl) {
+              const updatedNaskah: NaskahDinas = syncedNaskah || {
+                ...(changedItem || targetNaskah),
+                status: 'SELESAI_ARSIP',
+                dokumenFinal: driveUpdatedDoc,
+              };
               sendAppsScriptAction('saveNaskah', updatedNaskah, config).catch(() => {});
             }
+          } else if (config.appsScriptUrl && driveRes.error) {
+            showToast(`⚠ Arsip tersimpan lokal, namun unggah Google Drive belum berhasil: ${driveRes.error}`);
           }
         })
         .catch(() => {});
@@ -1028,8 +1555,13 @@ export default function App() {
   const handleUpdateArsip = (naskahId: string, updatedDoc: DokumenFinal) => {
     const { updatedList } = updateArsipMetadata(naskahId, updatedDoc, naskahList);
     setNaskahList(updatedList);
+    saveStoredNaskahList(updatedList);
+    const updatedItem = updatedList.find((n) => n.id === naskahId);
     if (config.appsScriptUrl) {
       syncUpdateArsip(updatedDoc.nomorSuratResmi, updatedDoc, config).catch(() => {});
+      if (updatedItem) {
+        sendAppsScriptAction('saveNaskah', updatedItem, config).catch(() => {});
+      }
     }
   };
 
@@ -1046,6 +1578,18 @@ export default function App() {
     setNaskahList(nextList);
     saveStoredNaskahList(nextList);
 
+    const targetDriveId = naskah.dokumenFinal?.driveFileId;
+    setArsipSheetList((prev) =>
+      prev.filter(
+        (a) =>
+          a.nomorSuratResmi !== nomorResmi &&
+          (!targetDriveId || a.driveFileId !== targetDriveId)
+      )
+    );
+    if (targetDriveId) {
+      setDriveFilesList((prev) => prev.filter((f) => f.fileId !== targetDriveId));
+    }
+
     // Kumpulkan seluruh file ID yang tersimpan di Google Drive (Folder Arsip dan Draft)
     const driveFileIds: (string | undefined)[] = [
       naskah.dokumenFinal?.driveFileId,
@@ -1053,7 +1597,7 @@ export default function App() {
       ...(naskah.riwayatVersi || []).map((v) => v.driveFileId),
     ].filter(Boolean);
 
-    // Hapus di Google Spreadsheet Sheet ArsipDigital
+    // Hapus di Google Spreadsheet Sheet ArsipDigital & NaskahDinas
     if (config.appsScriptUrl) {
       try {
         await syncDeleteArsip(nomorResmi, config);
@@ -1120,15 +1664,51 @@ export default function App() {
           saveStoredSuratList(res.suratList);
         }
         if (Array.isArray(res.naskahList)) {
-          setNaskahList(res.naskahList);
-          saveStoredNaskahList(res.naskahList);
+          setNaskahList((prev) => {
+            const merged = mergeRemoteNaskahPreservingLocalFiles(
+              res.naskahList!,
+              prev,
+              config.googleDriveFolderId
+            );
+            saveStoredNaskahList(merged);
+            const newMap = new Map<string, NaskahDinas>();
+            merged.forEach((item) => newMap.set(item.id, item));
+            previousNaskahMapRef.current = newMap;
+            return merged;
+          });
+        }
+        if (Array.isArray(res.arsipList)) {
+          setArsipSheetList(res.arsipList);
+        }
+        if (Array.isArray(res.driveFiles)) {
+          setDriveFilesList(res.driveFiles);
         }
         if (Array.isArray(res.userList) && res.userList.length > 0) {
           setUserList(res.userList);
           saveStoredUserList(res.userList);
         }
+        if (Array.isArray(res.activityLogs) && res.activityLogs.length > 0) {
+          setNotifications((prevNotifs) => {
+            const existingIds = new Set(prevNotifs.map((n) => n.id));
+            const mappedNew = res.activityLogs!
+              .map((raw) => mapRemoteLogToNotifikasi(raw))
+              .filter((n) => !existingIds.has(n.id));
+            if (mappedNew.length > 0) {
+              const combined = [...mappedNew, ...prevNotifs].slice(0, 100);
+              try {
+                localStorage.setItem(STORAGE_KEY_NOTIFIKASI, JSON.stringify(combined));
+              } catch {}
+              return combined;
+            }
+            return prevNotifs;
+          });
+        }
+        const archivedSyncedCount =
+          (res.naskahList || []).filter(
+            (n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN' || Boolean(n.dokumenFinal)
+          ).length || res.arsipList?.length || 0;
         showToast(
-          `✔ Sinkronisasi berhasil! ${res.suratList?.length ?? 0} surat, ${res.naskahList?.length ?? 0} naskah & ${res.userList?.length ?? 0} akun diperbarui.`
+          `✔ Sinkronisasi berhasil! ${res.suratList?.length ?? 0} surat, ${res.naskahList?.length ?? 0} naskah (${archivedSyncedCount} arsip) & ${res.userList?.length ?? 0} akun diperbarui.`
         );
       } else {
         showToast(`✕ Sinkronisasi gagal: ${res.error || 'Respon spreadsheet tidak valid'}`);
@@ -1346,9 +1926,19 @@ export default function App() {
       
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 bg-slate-950/90 text-white backdrop-blur-md px-5 py-2.5 rounded-2xl shadow-2xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 border border-white/10 animate-in fade-in slide-in-from-top-4 duration-200">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-          <span>{toastMessage}</span>
+        <div className="fixed top-5 left-1/2 transform -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] bg-slate-950/95 text-white backdrop-blur-md px-4 sm:px-5 py-2.5 rounded-2xl shadow-2xl text-xs sm:text-sm font-semibold flex items-center gap-2.5 border border-white/10 animate-in fade-in slide-in-from-top-4 duration-200">
+          <span
+            className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${
+              toastMessage.startsWith('✕')
+                ? 'bg-rose-400'
+                : toastMessage.startsWith('⚠')
+                ? 'bg-amber-400'
+                : toastMessage.startsWith('ℹ')
+                ? 'bg-blue-400'
+                : 'bg-emerald-400'
+            }`}
+          />
+          <span className="leading-snug">{toastMessage}</span>
         </div>
       )}
 
@@ -1482,13 +2072,17 @@ export default function App() {
         {/* TAB 4: ARSIP DIGITAL (All roles) */}
         {isTabPermitted && activeTab === 'arsip' && (
           <ArsipDigitalView
-            naskahList={naskahList}
+            naskahList={mergedNaskahForArsipView}
+            arsipSheetRecords={arsipSheetList}
+            driveFiles={driveFilesList}
             currentUser={currentUser}
             config={config}
             onUpdateArsip={handleUpdateArsip}
             onDeleteArsip={handleDeleteArsip}
             onOpenUnggahFinalModal={(naskah) => setSelectedForFinal(naskah)}
             onBukaKembaliNaskah={handleBukaKembaliNaskah}
+            onSyncArchive={handleManualSync}
+            isSyncing={isSyncing}
             onToast={showToast}
           />
         )}
@@ -1578,6 +2172,7 @@ export default function App() {
             {penomoranSubTab === 'register' && (
               <RegisterTable
                 suratList={suratList}
+                config={config}
                 onClaimKosong={handleClaimKosong}
                 onUpdateSurat={handleUpdateSurat}
                 onDeleteSurat={handleDeleteSurat}

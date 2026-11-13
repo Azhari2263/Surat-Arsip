@@ -22,26 +22,34 @@ import {
   Copy,
   Check,
   Folder,
+  RefreshCw,
 } from 'lucide-react';
-import { AppConfig, DokumenFinal, NaskahDinas, UserProfile } from '../types';
+import { AppConfig, ArsipDigitalRecord, DokumenFinal, DriveArchiveFile, NaskahDinas, UserProfile } from '../types';
 import { TIM_KERJA_OPTIONS } from '../data/bpsClassifications';
 import { formatTanggalIndo } from '../utils/storage';
 import {
-  getDriveFolderHierarchy,
   getDriveFolderUrl,
-  getDriveFileUrl,
+  generateFinalArsipFileName,
   extractTahun,
   extractBulanFolder,
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
 } from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface ArsipDigitalViewProps {
   naskahList: NaskahDinas[];
+  arsipSheetRecords?: ArsipDigitalRecord[];
+  driveFiles?: DriveArchiveFile[];
   currentUser?: UserProfile | null;
   config?: AppConfig;
   onUpdateArsip?: (naskahId: string, updatedDoc: DokumenFinal) => void;
   onDeleteArsip?: (naskah: NaskahDinas) => void;
   onOpenUnggahFinalModal?: (naskah: NaskahDinas) => void;
   onBukaKembaliNaskah?: (naskahId: string, alasan: string) => void;
+  onSyncArchive?: () => void;
+  isSyncing?: boolean;
   onToast: (msg: string) => void;
 }
 
@@ -52,13 +60,15 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
   onUpdateArsip,
   onDeleteArsip,
   onOpenUnggahFinalModal,
-  onBukaKembaliNaskah,
+  onSyncArchive,
+  isSyncing,
   onToast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUnit, setFilterUnit] = useState('all');
   const [filterTipeTtd, setFilterTipeTtd] = useState('all');
   const [selectedDoc, setSelectedDoc] = useState<NaskahDinas | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
   const [showSelectNaskahModal, setShowSelectNaskahModal] = useState(false);
 
   // CRUD Modals State
@@ -112,30 +122,106 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
     setShowSelectNaskahModal(true);
   };
 
-  // Documents with SELESAI_ARSIP or FINAL_DIARSIPKAN status
-  const arsipList = useMemo(() => {
+  // Documents with SELESAI_ARSIP or FINAL_DIARSIPKAN status (defensively build fallback dokumenFinal if omitted by Sheets cell size limit)
+  const allArchivedItems = useMemo(() => {
     return naskahList
-      .filter((n) => (n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN') && n.dokumenFinal)
-      .filter((n) => {
-        if (filterUnit !== 'all' && n.unitKerja !== filterUnit) return false;
-        if (filterTipeTtd !== 'all' && n.dokumenFinal?.tipeTandaTangan !== filterTipeTtd) return false;
-
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchNo = (n.dokumenFinal?.nomorSuratResmi || '').toLowerCase().includes(q);
-          const matchPerihal = n.perihal.toLowerCase().includes(q);
-          const matchPejabat = (n.dokumenFinal?.pejabatPenandatangan || '').toLowerCase().includes(q);
-          const matchKonseptor = n.namaKonseptor.toLowerCase().includes(q);
-          const matchKlasif = (n.klasifikasiArsip || '').toLowerCase().includes(q);
-          return matchNo || matchPerihal || matchPejabat || matchKonseptor || matchKlasif;
-        }
-
-        return true;
+      .filter((n) => n.status === 'SELESAI_ARSIP' || n.status === 'FINAL_DIARSIPKAN' || Boolean(n.dokumenFinal))
+      .map((n) => {
+        if (n.dokumenFinal) return n;
+        const nomorResmi = n.nomorSuratDipesan || n.nomorRegistrasi;
+        const tglPenetapan = n.tanggalSurat || n.tanggalPengajuan || '';
+        return {
+          ...n,
+          dokumenFinal: {
+            nomorSuratResmi: nomorResmi,
+            perihal: n.perihal,
+            jenisNaskah: n.jenisNaskah,
+            unitKerja: n.unitKerja,
+            tanggalPenetapan: tglPenetapan,
+            tipeTandaTangan: 'TTE' as const,
+            pejabatPenandatangan: 'Kepala BPS Provinsi Kalimantan Barat',
+            namaFile: generateFinalArsipFileName(nomorResmi, n.perihal, tglPenetapan || n.waktuUpdate || ''),
+            ukuranFile: 0,
+            waktuUnggah: n.waktuUpdate || n.tanggalPengajuan || '',
+            klasifikasiArsip: n.klasifikasiArsip || '-',
+            kodeUnitArsip: config?.kodeUnit || '6100',
+            tingkatKeamanan: 'Biasa' as const,
+            lokasiPenyimpanan: 'Google Drive Arsip Digital',
+          },
+        };
       });
-  }, [naskahList, filterUnit, filterTipeTtd, searchQuery]);
+  }, [naskahList, config?.kodeUnit]);
+
+  const unitFilterOptions = useMemo(() => {
+    const base =
+      config?.daftarTimKerja && config.daftarTimKerja.length > 0
+        ? config.daftarTimKerja
+        : TIM_KERJA_OPTIONS;
+    const set = new Set<string>(base);
+    allArchivedItems.forEach((item) => {
+      if (item.unitKerja && item.unitKerja.trim()) {
+        set.add(item.unitKerja.trim());
+      }
+    });
+    return Array.from(set);
+  }, [config?.daftarTimKerja, allArchivedItems]);
+
+  const arsipList = useMemo(() => {
+    return allArchivedItems.filter((n) => {
+      if (filterUnit !== 'all' && n.unitKerja !== filterUnit) return false;
+      if (filterTipeTtd !== 'all' && n.dokumenFinal?.tipeTandaTangan !== filterTipeTtd) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchNo = (n.dokumenFinal?.nomorSuratResmi || '').toLowerCase().includes(q);
+        const matchReg = (n.nomorRegistrasi || '').toLowerCase().includes(q);
+        const matchPerihal = (n.perihal || '').toLowerCase().includes(q);
+        const matchPejabat = (n.dokumenFinal?.pejabatPenandatangan || '').toLowerCase().includes(q);
+        const matchKonseptor = (n.namaKonseptor || '').toLowerCase().includes(q);
+        const matchKlasif = (n.klasifikasiArsip || '').toLowerCase().includes(q);
+        const matchFile = (n.dokumenFinal?.namaFile || '').toLowerCase().includes(q);
+        return matchNo || matchReg || matchPerihal || matchPejabat || matchKonseptor || matchKlasif || matchFile;
+      }
+
+      return true;
+    });
+  }, [allArchivedItems, filterUnit, filterTipeTtd, searchQuery]);
 
   const countTTE = arsipList.filter((a) => a.dokumenFinal?.tipeTandaTangan === 'TTE').length;
   const countManual = arsipList.filter((a) => a.dokumenFinal?.tipeTandaTangan === 'KONVENSIONAL').length;
+
+  const buildDirectFile = (doc: DokumenFinal): DirectFileInput => ({
+    name: doc.namaFile || 'dokumen-arsip.pdf',
+    type: 'application/pdf',
+    size: doc.ukuranFile,
+    dataUrl: doc.dataUrl,
+    driveFileId: doc.driveFileId,
+    driveUrl: doc.driveUrl,
+  });
+
+  const handleOpenArchiveFile = (doc: DokumenFinal) => {
+    const fileInput = buildDirectFile(doc);
+    const access = resolveDirectFileAccess(fileInput, config?.googleDriveFolderId);
+    if (!access.hasAnyAccess) {
+      onToast(
+        '⚠ Berkas file arsip belum tersinkronisasi ke Google Drive (ID File tidak ditemukan). Silakan klik "Segarkan Arsip" atau pastikan Web App Apps Script terbaru sudah di-deploy.'
+      );
+      return;
+    }
+    setPreviewFile(fileInput);
+  };
+
+  const handleDownloadArchiveFile = (doc: DokumenFinal) => {
+    const fileInput = buildDirectFile(doc);
+    const result = triggerDirectDownload(fileInput, config?.googleDriveFolderId);
+    if (result.ok) {
+      onToast(`✔ Mengunduh berkas ${fileInput.name}`);
+    } else {
+      onToast(
+        '⚠ File tidak dapat diunduh karena berkas lokal maupun File ID Google Drive belum tersedia.'
+      );
+    }
+  };
 
   const canManage = (item: NaskahDinas): boolean => {
     if (!currentUser) return false;
@@ -258,6 +344,19 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto justify-end">
+          {onSyncArchive && (
+            <button
+              type="button"
+              onClick={onSyncArchive}
+              disabled={isSyncing}
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap transition-colors disabled:opacity-50"
+              title="Muat ulang daftar arsip dari Spreadsheet & Google Drive"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#0f4c82] ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Menyinkronkan...' : 'Segarkan Arsip'}</span>
+            </button>
+          )}
+
           <a
             href={getDriveFolderUrl(config?.googleDriveFolderId)}
             target="_blank"
@@ -323,14 +422,14 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           <select
             value={filterUnit}
             onChange={(e) => setFilterUnit(e.target.value)}
-            className="h-10 px-3.5 text-xs font-medium rounded-xl border border-slate-300 bg-white text-slate-700 outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer"
+            className="h-10 px-3.5 text-xs font-medium rounded-xl border border-slate-300 bg-white text-slate-700 outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer flex-1 sm:flex-none"
           >
             <option value="all">Semua Unit Kerja</option>
-            {TIM_KERJA_OPTIONS.map((t) => (
+            {unitFilterOptions.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -340,7 +439,7 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
           <select
             value={filterTipeTtd}
             onChange={(e) => setFilterTipeTtd(e.target.value)}
-            className="h-10 px-3.5 text-xs font-medium rounded-xl border border-slate-300 bg-white text-slate-700 outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer"
+            className="h-10 px-3.5 text-xs font-medium rounded-xl border border-slate-300 bg-white text-slate-700 outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer flex-1 sm:flex-none"
           >
             <option value="all">Semua Jenis TTD</option>
             <option value="TTE">TTE Elektronik BSrE</option>
@@ -427,20 +526,26 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
                       <span className="text-slate-800 font-medium truncate max-w-[160px] text-right">{doc.pejabatPenandatangan}</span>
                     </div>
                     <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1 border-t border-slate-100">
-                      <span className="flex items-center gap-1 font-semibold text-[#0f4c82] truncate">
-                        <Folder className="w-3 h-3 shrink-0" />
-                        <span className="truncate">Drive: {extractTahun(doc.tanggalPenetapan)} / {item.unitKerja} / Arsip</span>
-                      </span>
-                      <a
-                        href={doc.driveUrl || getDriveFolderUrl(config?.googleDriveFolderId)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[10px] text-[#0f4c82] hover:underline font-bold inline-flex items-center gap-0.5 shrink-0 ml-1"
-                        title="Buka di Google Drive"
+                      <span
+                        className="flex items-center gap-1 font-semibold text-[#0f4c82] truncate"
+                        title={
+                          doc.driveFolderPath ||
+                          `${extractTahun(doc.tanggalPenetapan)} / ${item.unitKerja} / ${extractBulanFolder(doc.tanggalPenetapan)} / Arsip`
+                        }
                       >
-                        <span>Drive</span>
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
+                        <Folder className="w-3 h-3 shrink-0" />
+                        <span className="truncate">
+                          Drive: {extractTahun(doc.tanggalPenetapan)} / {item.unitKerja} / {extractBulanFolder(doc.tanggalPenetapan)} / Arsip
+                        </span>
+                      </span>
+                      {(() => {
+                        const fileAccess = resolveDirectFileAccess(buildDirectFile(doc), config?.googleDriveFolderId);
+                        return fileAccess.fileId ? (
+                          <span className="text-[10px] text-emerald-700 font-bold shrink-0 ml-1">
+                            Terhubung
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -448,29 +553,34 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
                 <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
                   <div className="flex items-center gap-1.5">
                     <button
+                      type="button"
                       onClick={() => setSelectedDoc(item)}
-                      className="flex-1 py-1.5 px-2.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1 cursor-pointer"
+                      className="py-1.5 px-2.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1 cursor-pointer"
                       title="Lihat detail metadata arsip"
                     >
-                      <Eye className="w-3.5 h-3.5 text-slate-500" />
+                      <FileText className="w-3.5 h-3.5 text-slate-500" />
                       <span>Detail</span>
                     </button>
 
-                    <a
-                      href={doc.dataUrl || '#'}
-                      download={doc.namaFile}
-                      onClick={(e) => {
-                        if (!doc.dataUrl) {
-                          e.preventDefault();
-                          onToast(`✔ Mengunduh berkas arsip: ${doc.namaFile}`);
-                        }
-                      }}
-                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#0f4c82] hover:bg-[#1a6bb5] text-white text-xs font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                      title="Unduh berkas PDF"
+                    <button
+                      type="button"
+                      onClick={() => handleOpenArchiveFile(doc)}
+                      className="flex-1 py-1.5 px-2.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-[#0f4c82] text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                      title={`Buka langsung berkas ${doc.namaFile}`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Buka</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadArchiveFile(doc)}
+                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#0f4c82] hover:bg-[#1a6bb5] text-white text-xs font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer transition-colors"
+                      title={`Unduh langsung berkas ${doc.namaFile}`}
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Unduh PDF</span>
-                    </a>
+                      <span>Unduh</span>
+                    </button>
                   </div>
 
                   {/* Actions: Edit & Delete for Admin / Konseptor */}
@@ -588,23 +698,36 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 flex items-center justify-between">
-                <div className="flex items-center gap-2 truncate">
+              <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                   <FileText className="w-5 h-5 text-[#0f4c82] shrink-0" />
-                  <div className="truncate">
+                  <div className="min-w-0">
                     <div className="font-bold text-slate-900 truncate">{selectedDoc.dokumenFinal.namaFile}</div>
                     <div className="text-[10px] text-slate-500 font-mono-tabular">
-                      {(selectedDoc.dokumenFinal.ukuranFile / 1024).toFixed(1)} KB · Format PDF
+                      {selectedDoc.dokumenFinal.ukuranFile > 0
+                        ? `${(selectedDoc.dokumenFinal.ukuranFile / 1024).toFixed(1)} KB · Format PDF`
+                        : 'Format PDF · Google Drive Arsip'}
                     </div>
                   </div>
                 </div>
-                <a
-                  href={selectedDoc.dokumenFinal.dataUrl || '#'}
-                  download={selectedDoc.dokumenFinal.namaFile}
-                  className="px-3 py-1.5 rounded-lg bg-[#0f4c82] text-white font-bold text-xs shrink-0 hover:bg-[#1a6bb5]"
-                >
-                  Unduh PDF
-                </a>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenArchiveFile(selectedDoc.dokumenFinal!)}
+                    className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-[#0f4c82] font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Buka</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadArchiveFile(selectedDoc.dokumenFinal!)}
+                    className="px-3 py-1.5 rounded-lg bg-[#0f4c82] text-white font-bold text-xs shrink-0 hover:bg-[#1a6bb5] inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -885,6 +1008,14 @@ export const ArsipDigitalView: React.FC<ArsipDigitalViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Pratinjau Berkas Langsung (Buka File) */}
+      <FilePreviewModal
+        file={previewFile}
+        rootFolderId={config?.googleDriveFolderId}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
 
     </div>
   );

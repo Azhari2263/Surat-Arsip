@@ -42,6 +42,12 @@ import { TIM_KERJA_OPTIONS, DAFTAR_KLASIFIKASI_BPS } from '../data/bpsClassifica
 import { tentukanVerifikator } from '../data/verifikatorData';
 import { formatTanggalIndo } from '../utils/storage';
 import { NaskahTimelineModal } from './NaskahTimelineModal';
+import {
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
+} from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface VerifikasiViewProps {
   naskahList: NaskahDinas[];
@@ -96,6 +102,7 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
   
   // Selected naskah for viewing timeline
   const [selectedNaskah, setSelectedNaskah] = useState<NaskahDinas | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   // Edit and Delete states
   const [editingNaskah, setEditingNaskah] = useState<NaskahDinas | null>(null);
@@ -118,6 +125,14 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
     setTimeout(() => setCopiedId(null), 2500);
     onToast('Nomor surat berhasil disalin');
   };
+
+  const unitFilterOptions = useMemo(() => {
+    const set = new Set<string>(TIM_KERJA_OPTIONS);
+    naskahList.forEach((n) => {
+      if (n.unitKerja && n.unitKerja.trim()) set.add(n.unitKerja.trim());
+    });
+    return Array.from(set);
+  }, [naskahList]);
 
   // Filtered List
   const filteredList = useMemo(() => {
@@ -390,7 +405,7 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
             className="h-10 text-xs px-3.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-medium outline-none focus:border-[#0f4c82] focus:ring-2 focus:ring-[#0f4c82]/20 transition-all cursor-pointer"
           >
             <option value="all">Semua Unit Kerja</option>
-            {TIM_KERJA_OPTIONS.map((unit) => (
+            {unitFilterOptions.map((unit) => (
               <option key={unit} value={unit}>
                 {unit}
               </option>
@@ -519,18 +534,45 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
                 {/* Right: Quick Actions & Timeline Button */}
                 <div className="flex items-center gap-2 w-full md:w-auto shrink-0 justify-end pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 flex-wrap">
                   
-                  {/* Download Word Draft */}
-                  {item.drafFile?.dataUrl ? (
-                    <a
-                      href={item.drafFile.dataUrl}
-                      download={item.drafFile.name}
-                      className="p-2 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-slate-200 text-xs font-medium flex items-center gap-1.5"
-                      title="Unduh Berkas Draf Word"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Draf Word</span>
-                    </a>
-                  ) : null}
+                  {/* Buka File & Unduh Draf Word */}
+                  {(() => {
+                    const draftInput: DirectFileInput = {
+                      name: item.drafFile?.name || 'draf.docx',
+                      type: item.drafFile?.type,
+                      size: item.drafFile?.size,
+                      dataUrl: item.drafFile?.dataUrl,
+                      driveFileId: item.driveDraftFileId,
+                      driveUrl: item.driveDraftUrl,
+                    };
+                    const access = resolveDirectFileAccess(draftInput);
+                    if (!access.hasAnyAccess) return null;
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewFile(draftInput)}
+                          className="p-2 text-[#0f4c82] hover:bg-blue-50 rounded-lg border border-blue-200 bg-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                          title={`Buka File ${draftInput.name}`}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Buka File</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const res = triggerDirectDownload(draftInput);
+                            if (res.ok) onToast(`✔ Mengunduh ${draftInput.name}`);
+                            else onToast(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                          }}
+                          className="p-2 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-slate-200 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                          title="Unduh Berkas Draf Word"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Unduh</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* If needs revision & user is konseptor/admin */}
                   {item.status === 'PERLU_PERBAIKAN' && onOpenRevisiModal && (
@@ -615,7 +657,7 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
       {/* ══════════════════════════════════════════════════════════════════ */}
       {selectedNaskah && (
         <NaskahTimelineModal
-          naskah={selectedNaskah}
+          naskah={naskahList.find((n) => n.id === selectedNaskah.id) || selectedNaskah}
           currentUser={currentUser}
           onClose={() => setSelectedNaskah(null)}
           onVerifikasiKeputusan={(naskahId, keputusan, catatan, checklist) => {
@@ -782,6 +824,12 @@ export const VerifikasiView: React.FC<VerifikasiViewProps> = ({
           </div>
         </div>
       )}
+
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
 
     </div>
   );

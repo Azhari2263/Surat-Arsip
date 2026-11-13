@@ -1,8 +1,7 @@
 import { TemplateNaskah } from '../types';
 
-export function downloadWordTemplate(template: TemplateNaskah): void {
-  // Generate a clean HTML-based Word document with Word XML namespaces that opens natively in MS Word
-  const htmlContent = `
+export function generateWordTemplateHtml(template: TemplateNaskah): string {
+  return `
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
 <meta charset="utf-8">
@@ -14,6 +13,7 @@ export function downloadWordTemplate(template: TemplateNaskah): void {
     line-height: 1.3;
     margin: 3cm 2cm 2.5cm 2.5cm;
     color: #000;
+    background: #fff;
   }
   .kop {
     text-align: center;
@@ -118,6 +118,15 @@ export function downloadWordTemplate(template: TemplateNaskah): void {
 </body>
 </html>
 `;
+}
+
+export function getWordTemplateFileName(template: TemplateNaskah): string {
+  return `Template_${template.jenis.replace(/[\s\(\)\/]/g, '_')}_BPS_Kalbar.doc`;
+}
+
+export function downloadWordTemplate(template: TemplateNaskah): void {
+  // Generate a clean HTML-based Word document with Word XML namespaces that opens natively in MS Word
+  const htmlContent = generateWordTemplateHtml(template);
 
   const blob = new Blob([htmlContent], {
     type: 'application/msword;charset=utf-8',
@@ -125,9 +134,9 @@ export function downloadWordTemplate(template: TemplateNaskah): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Template_${template.jenis.replace(/[\s\(\)\/]/g, '_')}_BPS_Kalbar.doc`;
+  a.download = getWordTemplateFileName(template);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }

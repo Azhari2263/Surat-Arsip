@@ -25,6 +25,7 @@ import {
   ExternalLink,
   ChevronRight,
   Copy,
+  Eye,
 } from 'lucide-react';
 import {
   ChecklistVerifikasi,
@@ -33,6 +34,12 @@ import {
   UserProfile,
 } from '../types';
 import { formatTanggalIndo, formatTanggalWaktuIndo } from '../utils/storage';
+import {
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
+} from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 export interface NaskahTimelineModalProps {
   naskah: NaskahDinas;
@@ -78,6 +85,10 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
   });
 
   const [copiedNomor, setCopiedNomor] = useState(false);
+  const [catatanError, setCatatanError] = useState<string | null>(null);
+  const [tolakError, setTolakError] = useState<string | null>(null);
+  const [bukaKembaliError, setBukaKembaliError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   // Verifikator yang ditunjuk untuk naskah ini
   const isAssignedVerifier =
@@ -118,9 +129,12 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
 
   const handleKirimKeputusan = (keputusan: 'DISETUJUI' | 'PERLU_PERBAIKAN') => {
     if (keputusan === 'PERLU_PERBAIKAN' && !catatanVerifikator.trim()) {
-      alert('Wajib mengisi catatan perbaikan agar konseptor mengetahui bagian yang perlu direvisi.');
+      const msg = 'Wajib mengisi catatan perbaikan agar konseptor mengetahui bagian yang perlu direvisi.';
+      setCatatanError(msg);
+      if (onToast) onToast(`⚠ ${msg}`);
       return;
     }
+    setCatatanError(null);
 
     if (!onVerifikasiKeputusan) return;
 
@@ -137,9 +151,12 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
 
   const handleConfirmTolak = () => {
     if (!alasanPenolakanText.trim()) {
-      alert('Alasan penolakan pengajuan wajib diisi.');
+      const msg = 'Alasan penolakan pengajuan wajib diisi.';
+      setTolakError(msg);
+      if (onToast) onToast(`⚠ ${msg}`);
       return;
     }
+    setTolakError(null);
     if (!onVerifikasiKeputusan) return;
 
     onVerifikasiKeputusan(
@@ -153,9 +170,12 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
 
   const handleConfirmBukaKembali = () => {
     if (!alasanBukaKembaliText.trim()) {
-      alert('Alasan pembukaan kembali pengajuan wajib diisi.');
+      const msg = 'Alasan pembukaan kembali pengajuan wajib diisi.';
+      setBukaKembaliError(msg);
+      if (onToast) onToast(`⚠ ${msg}`);
       return;
     }
+    setBukaKembaliError(null);
     if (!onBukaKembaliNaskah) return;
     onBukaKembaliNaskah(naskah.id, alasanBukaKembaliText.trim());
     setShowBukaKembaliModal(false);
@@ -599,17 +619,46 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {naskah.dokumenFinal?.dataUrl && (
-                  <a
-                    href={naskah.dokumenFinal.dataUrl}
-                    download={naskah.dokumenFinal.namaFile}
-                    className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Unduh PDF Sah</span>
-                  </a>
-                )}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {(() => {
+                  const finalDoc = naskah.dokumenFinal;
+                  const finalInput: DirectFileInput | null = finalDoc
+                    ? {
+                        name: finalDoc.namaFile,
+                        type: 'application/pdf',
+                        size: finalDoc.ukuranFile,
+                        dataUrl: finalDoc.dataUrl,
+                        driveFileId: finalDoc.driveFileId,
+                        driveUrl: finalDoc.driveUrl,
+                      }
+                    : null;
+                  const access = resolveDirectFileAccess(finalInput);
+                  if (!access.hasAnyAccess || !finalInput) return null;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile(finalInput)}
+                        className="px-3.5 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Buka File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const res = triggerDirectDownload(finalInput);
+                          if (res.ok) onToast?.(`✔ Mengunduh ${finalInput.name}`);
+                          else onToast?.(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                        }}
+                        className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh PDF Sah</span>
+                      </button>
+                    </>
+                  );
+                })()}
                 {currentUser.role === 'ADMIN' && (
                   <button
                     onClick={() => setShowBukaKembaliModal(true)}
@@ -656,7 +705,7 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                       <p className="mt-0.5 leading-relaxed">{naskah.ringkasanIsi}</p>
                     </div>
                   )}
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
                     <div className="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs flex items-center gap-2 text-slate-700">
                       <FileText className="w-3.5 h-3.5 text-blue-600" />
                       <span className="font-medium">{naskah.drafFile.name}</span>
@@ -664,16 +713,42 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                         ({Math.round((naskah.drafFile.size || 0) / 1024)} KB)
                       </span>
                     </div>
-                    {naskah.drafFile.dataUrl && (
-                      <a
-                        href={naskah.drafFile.dataUrl}
-                        download={naskah.drafFile.name}
-                        className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#0b3860] text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Unduh Word</span>
-                      </a>
-                    )}
+                    {(() => {
+                      const draftInput: DirectFileInput = {
+                        name: naskah.drafFile.name,
+                        type: naskah.drafFile.type,
+                        size: naskah.drafFile.size,
+                        dataUrl: naskah.drafFile.dataUrl,
+                        driveFileId: naskah.driveDraftFileId,
+                        driveUrl: naskah.driveDraftUrl,
+                      };
+                      const access = resolveDirectFileAccess(draftInput);
+                      if (!access.hasAnyAccess) return null;
+                      return (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewFile(draftInput)}
+                            className="px-3 py-1.5 bg-white hover:bg-blue-50 text-[#0f4c82] border border-blue-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Buka File</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const res = triggerDirectDownload(draftInput);
+                              if (res.ok) onToast?.(`✔ Mengunduh ${draftInput.name}`);
+                              else onToast?.(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                            }}
+                            className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#0b3860] text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Unduh Word</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -776,10 +851,16 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                         <textarea
                           rows={2}
                           value={catatanVerifikator}
-                          onChange={(e) => setCatatanVerifikator(e.target.value)}
+                          onChange={(e) => {
+                            setCatatanVerifikator(e.target.value);
+                            if (catatanError) setCatatanError(null);
+                          }}
                           placeholder="Tuliskan catatan telaah (wajib diisi jika mengembalikan untuk perbaikan)..."
                           className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-[#0f4c82] focus:ring-1 focus:ring-[#0f4c82]"
                         />
+                        {catatanError && (
+                          <p className="text-[11px] text-rose-600 font-semibold">{catatanError}</p>
+                        )}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                           <button
                             type="button"
@@ -952,16 +1033,43 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
                           Berkas: <strong className="text-slate-800">{naskah.dokumenFinal.namaFile}</strong> (
                           {Math.round((naskah.dokumenFinal.ukuranFile || 0) / 1024)} KB)
                         </span>
-                        {naskah.dokumenFinal.dataUrl && (
-                          <a
-                            href={naskah.dokumenFinal.dataUrl}
-                            download={naskah.dokumenFinal.namaFile}
-                            className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#1a6bb5] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Unduh Dokumen PDF Sah</span>
-                          </a>
-                        )}
+                        {(() => {
+                          const doc = naskah.dokumenFinal!;
+                          const finalInput: DirectFileInput = {
+                            name: doc.namaFile,
+                            type: 'application/pdf',
+                            size: doc.ukuranFile,
+                            dataUrl: doc.dataUrl,
+                            driveFileId: doc.driveFileId,
+                            driveUrl: doc.driveUrl,
+                          };
+                          const access = resolveDirectFileAccess(finalInput);
+                          if (!access.hasAnyAccess) return null;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFile(finalInput)}
+                                className="px-3 py-1.5 bg-white border border-teal-200 hover:bg-teal-50 text-teal-800 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Buka File</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const res = triggerDirectDownload(finalInput);
+                                  if (res.ok) onToast?.(`✔ Mengunduh ${finalInput.name}`);
+                                  else onToast?.(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                                }}
+                                className="px-3 py-1.5 bg-[#0f4c82] hover:bg-[#1a6bb5] text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Unduh Dokumen PDF Sah</span>
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ) : (
@@ -1066,10 +1174,16 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
               <textarea
                 rows={3}
                 value={alasanPenolakanText}
-                onChange={(e) => setAlasanPenolakanText(e.target.value)}
+                onChange={(e) => {
+                  setAlasanPenolakanText(e.target.value);
+                  if (tolakError) setTolakError(null);
+                }}
                 placeholder="Contoh: Format naskah tidak sesuai kewenangan unit kerja atau substansi telah diakomodasi surat lain..."
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               />
+              {tolakError && (
+                <p className="text-[11px] text-rose-600 font-semibold mt-1">{tolakError}</p>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -1109,10 +1223,16 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
               <textarea
                 rows={3}
                 value={alasanBukaKembaliText}
-                onChange={(e) => setAlasanBukaKembaliText(e.target.value)}
+                onChange={(e) => {
+                  setAlasanBukaKembaliText(e.target.value);
+                  if (bukaKembaliError) setBukaKembaliError(null);
+                }}
                 placeholder="Tuliskan alasan koreksi atau pembukaan kembali pengajuan..."
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
               />
+              {bukaKembaliError && (
+                <p className="text-[11px] text-rose-600 font-semibold mt-1">{bukaKembaliError}</p>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -1133,6 +1253,11 @@ export const NaskahTimelineModal: React.FC<NaskahTimelineModalProps> = ({
           </div>
         </div>
       )}
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
     </div>
   );
 };

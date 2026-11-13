@@ -240,21 +240,24 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     }
   };
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const handleConfirmDelete = async () => {
     if (!deleteCandidate) return;
 
     if (deleteCandidate.id === currentUser.id || deleteCandidate.username.toLowerCase() === currentUser.username.toLowerCase()) {
-      alert('Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif.');
+      setDeleteError('Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif.');
       return;
     }
 
+    setDeleteError(null);
     setIsDeleting(true);
     try {
       const ok = await onDeleteUser(deleteCandidate.id, deleteCandidate.username);
       if (ok) {
         setDeleteCandidate(null);
       } else {
-        alert('Gagal menghapus pengguna dari database spreadsheet.');
+        setDeleteError('Gagal menghapus pengguna dari database spreadsheet.');
       }
     } finally {
       setIsDeleting(false);
@@ -767,9 +770,18 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               Apakah Anda yakin ingin menghapus akun <strong>{deleteCandidate.nama}</strong> (@{deleteCandidate.username})? Data ini akan dihapus secara permanen dari Sheet <strong>Pengguna</strong> pada Google Spreadsheet.
             </p>
 
+            {deleteError && (
+              <div className="mt-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+                {deleteError}
+              </div>
+            )}
+
             <div className="mt-6 flex items-center justify-center gap-2.5">
               <button
-                onClick={() => setDeleteCandidate(null)}
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteCandidate(null);
+                }}
                 disabled={isDeleting}
                 className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors cursor-pointer"
               >

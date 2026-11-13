@@ -9,9 +9,16 @@ import {
   FileText,
   Download,
   Share2,
+  Eye,
 } from 'lucide-react';
 import { SuratKeluar } from '../types';
 import { formatTanggalIndo, formatTanggalWaktuIndo } from '../utils/storage';
+import {
+  DirectFileInput,
+  resolveDirectFileAccess,
+  triggerDirectDownload,
+} from '../utils/googleDriveSync';
+import { FilePreviewModal } from './FilePreviewModal';
 
 interface ResultCardProps {
   surat: SuratKeluar;
@@ -32,6 +39,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
 }) => {
   const [copiedNomor, setCopiedNomor] = useState(false);
   const [copiedFull, setCopiedFull] = useState(false);
+  const [previewFile, setPreviewFile] = useState<DirectFileInput | null>(null);
 
   const kodeMap: { [key: string]: string } = {
     B: 'Biasa (Surat Dinas/Rutin)',
@@ -162,21 +170,34 @@ _Arsip Internal TU Kepala BPS Provinsi Kalimantan Barat_`;
                 Dokumen Lampiran
               </div>
               <div className="p-3.5 sm:px-6 flex-1 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#1a6bb5]" />
-                  <span className="font-medium text-slate-800">{surat.fileAttachment.name}</span>
-                  <span className="text-[11px] text-slate-500 font-mono-tabular">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="w-4 h-4 text-[#1a6bb5] shrink-0" />
+                  <span className="font-medium text-slate-800 truncate">{surat.fileAttachment.name}</span>
+                  <span className="text-[11px] text-slate-500 font-mono-tabular shrink-0">
                     ({(surat.fileAttachment.size / 1024).toFixed(1)} KB)
                   </span>
                 </div>
-                {surat.fileAttachment.dataUrl && (
-                  <a
-                    href={surat.fileAttachment.dataUrl}
-                    download={surat.fileAttachment.name}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-[#1a6bb5] hover:underline"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Unduh
-                  </a>
+                {resolveDirectFileAccess(surat.fileAttachment).hasAnyAccess && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFile(surat.fileAttachment!)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-blue-200 bg-white hover:bg-blue-50 text-xs font-bold text-[#0f4c82] cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Buka File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = triggerDirectDownload(surat.fileAttachment!);
+                        if (res.ok) onToast(`✔ Mengunduh ${surat.fileAttachment!.name}`);
+                        else onToast(`⚠ ${res.reason || 'Berkas belum tersedia.'}`);
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-[#1a6bb5] hover:underline cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Unduh
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -203,6 +224,12 @@ _Arsip Internal TU Kepala BPS Provinsi Kalimantan Barat_`;
         </div>
 
       </div>
+
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onToast={onToast}
+      />
     </div>
   );
 };

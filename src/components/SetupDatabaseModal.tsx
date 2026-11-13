@@ -38,13 +38,13 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
 
   const handleRunSetup = async () => {
     setIsLoading(true);
-    setStatusMessage({ type: 'info', text: 'Menghubungi Google Apps Script untuk menyiapkan lembar Keluar26, NaskahDinas, ArsipDigital, dan Pengguna...' });
+    setStatusMessage({ type: 'info', text: 'Menghubungi Google Apps Script untuk menyiapkan lembar Keluar26, NaskahDinas, ArsipDigital, Pengguna, Pengaturan, dan LogAktivitas...' });
     try {
       const res = await setupDatabaseSpreadsheet(config);
       if (res.success) {
         setStatusMessage({
           type: 'success',
-          text: '✔ Berhasil! Struktur database (Keluar26, NaskahDinas, ArsipDigital, dan Pengguna) telah aktif pada Spreadsheet Google.',
+          text: '✔ Berhasil! Struktur database (Keluar26, NaskahDinas, ArsipDigital, Pengguna, Pengaturan, LogAktivitas) telah aktif pada Spreadsheet Google.',
         });
         onToast('✔ Database spreadsheet berhasil diinisialisasi!');
       } else {
@@ -242,7 +242,7 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
                       <span>1. Setup Otomatis Database</span>
                     </h4>
                     <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-                      Membuat dan memformat otomatis 3 lembar kerja di spreadsheet Anda: <strong>Keluar26</strong>, <strong>NaskahDinas</strong>, dan <strong>ArsipDigital</strong> lengkap dengan header dan styling warna standar BPS.
+                      Membuat dan memformat otomatis lembar kerja di spreadsheet Anda: <strong>Keluar26</strong>, <strong>NaskahDinas</strong>, <strong>ArsipDigital</strong>, <strong>Pengguna</strong>, <strong>Pengaturan</strong>, dan <strong>LogAktivitas</strong> lengkap dengan header dan styling warna standar BPS.
                     </p>
                   </div>
                   <button
@@ -482,7 +482,10 @@ export const SetupDatabaseModal: React.FC<SetupDatabaseModalProps> = ({
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            Terhubung ke Google Spreadsheet ID: <code className="font-mono font-bold text-slate-700">1Pf0RmsY1za...</code>
+            Terhubung ke Google Spreadsheet ID:{' '}
+            <code className="font-mono font-bold text-slate-700">
+              {config.spreadsheetId ? `${config.spreadsheetId.slice(0, 14)}...` : '-'}
+            </code>
           </span>
           <button
             onClick={onClose}

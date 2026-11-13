@@ -260,14 +260,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           onToast('✔ Data arsip berhasil dipulihkan dari backup!');
           onClose();
         } else {
-          alert('Format file JSON backup tidak valid.');
+          onToast('✕ Format file JSON backup tidak valid.');
         }
       } catch {
-        alert('Gagal membaca file JSON backup.');
+        onToast('✕ Gagal membaca file JSON backup.');
       }
     };
     reader.readAsText(file);
   };
+
+  const [confirmReset, setConfirmReset] = useState(false);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
@@ -757,24 +759,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-[11px] text-red-700 leading-relaxed">
                   Tindakan ini akan mengembalikan seluruh pengaturan dan nomor ke kondisi awal bawaan BPS Kalbar.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        'PERINGATAN: Apakah Anda yakin ingin mengatur ulang data ke kondisi awal? Pastikan Anda telah mengunduh cadangan JSON terlebih dahulu.'
-                      )
-                    ) {
-                      onResetData();
-                      onToast('✔ Data sistem berhasil direset ke kondisi awal.');
-                      onClose();
-                    }
-                  }}
-                  className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset ke Kondisi Default</span>
-                </button>
+                {!confirmReset ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReset(true)}
+                    className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset ke Kondisi Default</span>
+                  </button>
+                ) : (
+                  <div className="p-3 bg-white rounded-lg border border-red-300 space-y-2">
+                    <p className="text-[11px] font-bold text-red-800">
+                      Konfirmasi Reset: Seluruh pengaturan & data lokal akan dikembalikan ke bawaan awal BPS Kalbar. Pastikan Anda sudah mengunduh cadangan JSON.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onResetData();
+                          onToast('✔ Data sistem berhasil direset ke kondisi awal.');
+                          setConfirmReset(false);
+                          onClose();
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs cursor-pointer"
+                      >
+                        Ya, Reset Sekarang
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmReset(false)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
